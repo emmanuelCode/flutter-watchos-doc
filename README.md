@@ -2,7 +2,7 @@
 ### A Proposal Design Document 
 
 ## What This Is
-A design proposal for watchOS as a Flutter platform target, not a working implementation. You can read my dev.to article [here](https://dev.to/emmanuel_code/analysis-flutter-on-watchos-4kc9-temp-slug-341273) to learn more. The document is mostly made by AI with my own idea thrown in but mistake or error could still be in there. 
+A design proposal for watchOS as a Flutter platform target, not a working implementation. You can read my dev.to article [here](https://dev.to/emmanuel_code/analysis-flutter-on-watchos-4kc9-temp-slug-341273?preview=f525320a5c61f7ae9ba6ea84fa2e10a1faa8f7fd0805dea4120a16bad9c4c9917a90ba9d009c4212d23dca06b814f023d6dd5c2caa8d784cf437dd54) to learn more. The document is mostly made by AI with my own idea thrown in but mistake or error could still be in there. 
 
 ## Goal
 To encourage the community and the Flutter team to treat wearables as a first-class target, and to give anyone who does build it a starting point.
