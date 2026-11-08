@@ -191,9 +191,60 @@ jobs:
           if-no-files-found: ignore
 
   # ---------------------------------------------------------------------------
+  e2e:
+    name: "End-to-end — real Flutter streamer <-> watchOS client"
+    runs-on: macos-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+        working-directory: ./watchos-proofs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: "Record tool versions"
+        run: bash scripts/env_info.sh swift
+
+      - name: "E0 · [e2e] Simulator boots, spec code extracted, Flutter deps resolved"
+        timeout-minutes: 15
+        run: bash scripts/step.sh E0 bash scripts/e2e_setup.sh
+
+      - name: "E1 · [e2e] The whole loop: real streamer -> WebSocket -> real WatchFrameView; tap back -> next frame"
+        if: ${{ !cancelled() }}
+        timeout-minutes: 25
+        run: bash scripts/step.sh --needs E0 E1 bash scripts/run_e2e.sh
+
+      - name: "Collect measurements logged by the tests"
+        if: ${{ always() }}
+        run: |
+          if [ -f /tmp/watch_proofs/results.log ]; then
+            sed 's/^/INFO|SIM|/' /tmp/watch_proofs/results.log >> /tmp/proof_results.txt
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: results-e2e
+          path: /tmp/proof_results.txt
+          if-no-files-found: warn
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ failure() }}
+        with:
+          name: logs-e2e
+          path: |
+            /tmp/proof_logs
+            /tmp/xcodebuild_*.log
+            /tmp/e2e_server.log
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
   report:
     name: "RESULTS — open this job and copy the block"
-    needs: [flutter-side, swift-watchos]
+    needs: [flutter-side, swift-watchos, e2e]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:

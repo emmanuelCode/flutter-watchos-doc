@@ -67,6 +67,15 @@ If the spec's code blocks change shape, the X1/X2 steps fail loudly. Generated f
 | S5 | `WatchRenderStore` + `@_cdecl` slab API + `WatchCanvasView` draw bytes written the way Dart writes them | `.../S5_RenderStoreCanvasTests.swift` |
 | S6 | `WatchCanvasView` redraws on `frameTick` with no `TimelineView` (experimental) | `.../S6_CanvasTickRedrawTests.swift` |
 
+## Round 3 — the whole loop, no stand-ins
+
+| ID | What it proves | File |
+|---|---|---|
+| E0 | The end-to-end job's setup: simulator boots, spec code extracted, Flutter deps resolve | `scripts/e2e_setup.sh` |
+| E1 | **Real `WatchFrameStreamer` + `WatchInputInjector`** (inside `flutter test`, acting as the Mac) behind a real WebSocket **<->** a watchOS client test using the spec's real `WatchFrameStore` + `WatchFrameView`. On connect the server calls `captureNow()`; the watch checks the view shows red, sends a tap in watch-screen coordinates, the server maps it into app coordinates and replays it, and the watch checks the next frame turns the view green | `flutter_proofs/test/e2e_server_test.dart` + `swift_spec/Tests/.../E1_EndToEndTests.swift` + `scripts/run_e2e.sh` |
+
+E1 runs in its own job (`e2e`) because it needs Flutter and the watchOS Simulator on the same machine.
+
 ## Run locally (Mac with Xcode + Flutter)
 
 ```bash

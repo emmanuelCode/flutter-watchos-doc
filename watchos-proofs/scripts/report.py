@@ -26,10 +26,12 @@ TITLES = {
     "S4": "[spec code] WatchFrameView redraws when a new frame is published",
     "S5": "[spec code] WatchRenderStore + @_cdecl slab API + WatchCanvasView draw Dart-style bytes",
     "S6": "[spec code] WatchCanvasView redraws on frameTick, no TimelineView (experimental)",
+    "E0": "[e2e] Simulator boots, spec code extracted, Flutter deps resolved",
+    "E1": "[e2e] Whole loop: real streamer -> WebSocket -> real WatchFrameView; tap back -> next frame",
 }
 ORDER = ["F0", "P1", "P0", "P2", "P3", "P4", "P5", "P6", "A1", "A2", "A3", "A4", "P9",
-         "X1", "S1", "S7", "X2", "S0", "S2", "S3", "S4", "S5", "S6"]
-EXPECTED_ARTIFACTS = ["results-flutter", "results-swift"]
+         "X1", "S1", "S7", "X2", "S0", "S2", "S3", "S4", "S5", "S6", "E0", "E1"]
+EXPECTED_ARTIFACTS = ["results-flutter", "results-swift", "results-e2e"]
 ICON = {"PASS": "✅", "FAIL": "❌", "BLOCKED": "⛔", "MISSING": "⬜"}
 
 root = sys.argv[1] if len(sys.argv) > 1 else "results"

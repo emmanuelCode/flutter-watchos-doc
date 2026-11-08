@@ -37,7 +37,7 @@ if [ "$CODE" -eq 0 ]; then STATUS=PASS; else STATUS=FAIL; fi
 echo "RESULT|$ID|$STATUS" >> "$RESULTS"
 
 # measurements the tests print, e.g. "P2: pixelRatio 1.0 -> 191664 bytes, 85 ms"
-grep -oE "(INFO: |P[0-9]+: |A[0-9]+: |S[0-9]+: ).*" "$LOG" | head -n 10 | cut -c1-200 | sed "s/^/INFO|$ID|/" >> "$RESULTS"
+grep -oE "(INFO: |[PASE][0-9]+: ).*" "$LOG" | head -n 10 | cut -c1-200 | sed "s/^/INFO|$ID|/" >> "$RESULTS"
 
 if [ "$STATUS" = "FAIL" ]; then
   # Flutter prints the real reason in an "EXCEPTION CAUGHT" block (Expected/Actual/Which/stack)
