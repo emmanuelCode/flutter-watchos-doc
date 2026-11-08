@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+# generated from the spec by scripts/extract_spec_code.py
+swift_spec/Sources/SpecCode/*.swift
+flutter_proofs/lib/spec/*.dart

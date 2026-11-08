@@ -1,6 +1,6 @@
 # watchOS proofs — one tiny test per untested idea
 
-The GitHub Actions workflow (`.github/workflows/proofs.yml`) runs on a **macOS runner** with the
+The GitHub Actions workflow (`.github/workflows/proofs.yml`, at the **repo root**) runs on a **macOS runner** with the
 **watchOS Simulator**. Each *step name* is one concept — read the step list as the checklist.
 When everything finishes, the last job (**"RESULTS — open this job and copy the block"**) prints one
 result sheet. That block is also saved in the run's **Summary** page. Paste it back to get fixes.
@@ -46,10 +46,30 @@ artifacts, but only when something fails.
 goes red), and appends `PASS` / `FAIL` plus a few evidence lines to a results file. Each job uploads
 that file; the final job runs `scripts/report.py` to merge them into one block.
 
+## Round 2 — testing the spec's REAL code, and sustained transport
+
+`scripts/extract_spec_code.py` copies the spec's own code blocks (`Color(argb:)`, `WatchFrameStore`,
+`WatchFrameView`, `WatchRenderStore`, `WatchCanvasView`, `WatchFrameStreamer`, `WatchInputInjector`)
+into generated files at CI time, so these tests check exactly what the spec says. The Swift code goes
+into its **own package** (`swift_spec/`) so a compile error there cannot break the P-tests above.
+If the spec's code blocks change shape, the X1/X2 steps fail loudly. Generated files are git-ignored.
+
+| ID | What it proves | File |
+|---|---|---|
+| P9 | 100 frames at pixel ratio 1.0 / 2.0 in raw, zlib and XOR-delta encodings: every frame decodes correctly; bytes/frame, ms/frame and decode ms/frame are logged (loopback, debug build, optimistic frame content) | `dart_tools/ws_stream_server.dart` + `.../P9_TransportThroughputTests.swift` |
+| X1 / X2 | The spec's Dart / Swift blocks can be extracted | `scripts/extract_spec_code.py` |
+| S1 | The real `WatchFrameStreamer` captures frames and the real `WatchInputInjector` tap changes the next one | `flutter_proofs/test/s1_spec_streamer_injector_test.dart` |
+| S0 | The spec's Swift code compiles for watchOS | `scripts/swift_pkg.sh` |
+| S2 | `Color(argb:)` renders the right channels, incl. alpha | `swift_spec/Tests/.../S2_ColorARGBTests.swift` |
+| S3 | `WatchFrameStore` + `WatchFrameView` draw a frame; also measures whether `store.scale` changes anything | `.../S3_FrameStoreViewTests.swift` |
+| S4 | `WatchFrameView` redraws when a new frame is published (experimental) | `.../S4_FrameViewRedrawTests.swift` |
+| S5 | `WatchRenderStore` + `@_cdecl` slab API + `WatchCanvasView` draw bytes written the way Dart writes them | `.../S5_RenderStoreCanvasTests.swift` |
+| S6 | `WatchCanvasView` redraws on `frameTick` with no `TimelineView` (experimental) | `.../S6_CanvasTickRedrawTests.swift` |
+
 ## Run locally (Mac with Xcode + Flutter)
 
 ```bash
-cd flutter_proofs && flutter pub get && flutter test           # P2, P3
+cd watchos-proofs/flutter_proofs && flutter pub get && flutter test           # P2, P3
 bash scripts/pick_watch_sim.sh                                  # P1 (prints the simulator UDID)
 export WATCH_UDID=<udid printed above>
 dart run dart_tools/gen_wire_fixture.dart                       # needed by A3

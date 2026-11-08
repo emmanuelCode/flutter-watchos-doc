@@ -1,23 +1,31 @@
 #!/usr/bin/env bash
-# Usage: step.sh [--sim] <ID> <command...>
-# Runs the command, saves its log, and appends a structured line to /tmp/proof_results.txt:
+# Usage: step.sh [--sim | --needs ID1,ID2] <ID> <command...>
+# Runs the command, saves its log, and appends structured lines to /tmp/proof_results.txt:
 #   RESULT|<ID>|PASS|FAIL|BLOCKED[|blocker]     INFO|<ID>|<measurement>     EVID|<ID>|<error line>
 # The exit code is the command's, so the GitHub step still goes red on failure.
-# --sim: this step needs the watch simulator, so it is BLOCKED if P1 or P0 already failed.
+# --sim          = --needs P1,P0 (needs the watch simulator and a compiling swift_proofs package)
+# --needs a,b    = BLOCKED if any listed step FAILED or was itself BLOCKED
 RESULTS=/tmp/proof_results.txt
-SIM=0
-if [ "${1:-}" = "--sim" ]; then SIM=1; shift; fi
+NEEDS=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --sim)   NEEDS="P1,P0"; shift ;;
+    --needs) NEEDS="$2"; shift 2 ;;
+    *) break ;;
+  esac
+done
 ID="$1"; shift
 mkdir -p /tmp/proof_logs
 LOG="/tmp/proof_logs/$ID.log"
 
-if [ "$SIM" -eq 1 ]; then
+if [ -n "$NEEDS" ]; then
   BLOCKER=""
-  if grep -q "^RESULT|P1|FAIL" "$RESULTS" 2>/dev/null; then BLOCKER="P1"
-  elif grep -q "^RESULT|P0|FAIL" "$RESULTS" 2>/dev/null; then BLOCKER="P0"; fi
+  for dep in ${NEEDS//,/ }; do
+    if grep -qE "^RESULT\|$dep\|(FAIL|BLOCKED)" "$RESULTS" 2>/dev/null; then BLOCKER="$dep"; break; fi
+  done
   if [ -n "$BLOCKER" ]; then
     echo "RESULT|$ID|BLOCKED|$BLOCKER" >> "$RESULTS"
-    echo "BLOCKED: $BLOCKER failed, so $ID cannot run"
+    echo "BLOCKED: $BLOCKER did not pass, so $ID cannot run"
     exit 1
   fi
 fi
@@ -29,7 +37,7 @@ if [ "$CODE" -eq 0 ]; then STATUS=PASS; else STATUS=FAIL; fi
 echo "RESULT|$ID|$STATUS" >> "$RESULTS"
 
 # measurements the tests print, e.g. "P2: pixelRatio 1.0 -> 191664 bytes, 85 ms"
-grep -oE "(INFO: |P[0-9]+: |A[0-9]+: ).*" "$LOG" | head -n 10 | cut -c1-200 | sed "s/^/INFO|$ID|/" >> "$RESULTS"
+grep -oE "(INFO: |P[0-9]+: |A[0-9]+: |S[0-9]+: ).*" "$LOG" | head -n 10 | cut -c1-200 | sed "s/^/INFO|$ID|/" >> "$RESULTS"
 
 if [ "$STATUS" = "FAIL" ]; then
   EV=$(grep -E "error:|Error:|FAIL|failed|XCTAssert|Exception|Testing failed|Unable to|TEST FAILED|No such|not found" "$LOG" | head -n 20 | cut -c1-240)
