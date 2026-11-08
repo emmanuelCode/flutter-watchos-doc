@@ -21,18 +21,18 @@ jobs:
           channel: stable
 
       - name: "Record tool versions"
-        run: bash "$GITHUB_WORKSPACE/scripts/env_info.sh" flutter
+        run: bash scripts/env_info.sh flutter
 
       - name: "F0 · Flutter dependencies resolve"
-        run: bash "$GITHUB_WORKSPACE/scripts/step.sh" F0 flutter pub get
+        run: bash scripts/step.sh F0 flutter pub get
 
       - name: "P2 · Flutter captures a frame with no window (toImage -> raw RGBA, sizes match the bandwidth table)"
         if: ${{ !cancelled() }}
-        run: bash "$GITHUB_WORKSPACE/scripts/step.sh" P2 flutter test test/p2_headless_frame_capture_test.dart
+        run: bash scripts/step.sh P2 flutter test test/p2_headless_frame_capture_test.dart
 
       - name: "P3 · A tap injected through GestureBinding changes the next captured frame"
         if: ${{ !cancelled() }}
-        run: bash "$GITHUB_WORKSPACE/scripts/step.sh" P3 flutter test test/p3_tap_injection_test.dart
+        run: bash scripts/step.sh P3 flutter test test/p3_tap_injection_test.dart
 
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
