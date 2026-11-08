@@ -22,63 +22,96 @@ class _Frame {
 }
 
 void main() {
-  testWidgets('real streamer captures frames; real injector tap changes the next frame', (tester) async {
-    final key = GlobalKey();
-    var taps = 0;
-    final frames = <_Frame>[];
+  testWidgets(
+    'real streamer captures frames; real injector tap changes the next frame',
+    (tester) async {
+      final key = GlobalKey();
+      var taps = 0;
+      final frames = <_Frame>[];
 
-    await tester.pumpWidget(
-      Directionality(
-        textDirection: TextDirection.ltr,
-        child: RepaintBoundary(
-          key: key,
-          child: StatefulBuilder(
-            builder: (context, setState) => GestureDetector(
-              onTap: () => setState(() => taps++),
-              child: ColoredBox(color: taps == 0 ? _red : _green, child: const SizedBox.expand()),
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: RepaintBoundary(
+            key: key,
+            child: StatefulBuilder(
+              builder: (context, setState) => GestureDetector(
+                onTap: () => setState(() => taps++),
+                child: ColoredBox(
+                  color: taps == 0 ? _red : _green,
+                  child: const SizedBox.expand(),
+                ),
+              ),
             ),
           ),
         ),
-      ),
-    );
+      );
 
-    final streamer = WatchFrameStreamer(
-      boundaryKey: key,
-      sink: (rgba, w, h, id) => frames.add(_Frame(Uint8List.fromList(rgba), w, h, id)),
-    );
-    expect(streamer.pixelRatio, 1.0, reason: 'v6 defaulted to 2.0 (4x the bytes) - must stay 1.0');
-    streamer.start();
+      final streamer = WatchFrameStreamer(
+        boundaryKey: key,
+        sink: (rgba, w, h, id) =>
+            frames.add(_Frame(Uint8List.fromList(rgba), w, h, id)),
+      );
+      expect(
+        streamer.pixelRatio,
+        1.0,
+        reason: 'v6 defaulted to 2.0 (4x the bytes) - must stay 1.0',
+      );
+      streamer.start();
 
-    // The streamer starts toImage from a frame callback, i.e. inside the fake-async test zone.
-    // toImage completes on the REAL event loop, but the streamer's continuation waits in the FAKE
-    // microtask queue — so alternate: pump (flushes fake microtasks) and a real-async wait.
-    Future<void> settle() async {
-      for (var i = 0; i < 6; i++) {
-        await tester.pump();
-        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+      // pump() only runs a frame if one is already scheduled. The streamer registered AFTER the first
+      // frame, and an idle app schedules none - so nothing would ever fire it. (The same happens in
+      // real life when a watch connects to an idle app: see the spec note on sending the current frame.)
+      // ignore: avoid_print
+      print(
+        'S1: hasScheduledFrame right after start() = ${tester.binding.hasScheduledFrame}',
+      );
+      tester.binding.scheduleFrame();
+
+      // The streamer starts toImage from a frame callback, i.e. inside the fake-async test zone.
+      // toImage completes on the REAL event loop, but the streamer's continuation waits in the FAKE
+      // microtask queue — so alternate: pump (flushes fake microtasks) and a real-async wait.
+      Future<void> settle() async {
+        for (var i = 0; i < 6; i++) {
+          await tester.pump();
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 100)),
+          );
+        }
       }
-    }
 
-    await settle();
-    // ignore: avoid_print
-    print('S1: after first settle: frames=${frames.length}');
-    expect(frames, isNotEmpty, reason: 'streamer produced no frame');
-    expect([frames.last.w, frames.last.h], [800, 600]); // logical test surface at pixelRatio 1.0
-    expect(frames.last.centre, [255, 0, 0, 255]);
-    final before = frames.length;
-    final lastId = frames.last.id;
+      await settle();
+      // ignore: avoid_print
+      print('S1: after first settle: frames=${frames.length}');
+      expect(frames, isNotEmpty, reason: 'streamer produced no frame');
+      expect(
+        [frames.last.w, frames.last.h],
+        [800, 600],
+      ); // logical test surface at pixelRatio 1.0
+      expect(frames.last.centre, [255, 0, 0, 255]);
+      final before = frames.length;
+      final lastId = frames.last.id;
 
-    WatchInputInjector().tap(const Offset(400, 300)); // exactly the spec's injector, no viewId passed
-    await settle();
-    // ignore: avoid_print
-    print('S1: after tap: taps=$taps frames=${frames.length}');
+      WatchInputInjector().tap(
+        const Offset(400, 300),
+      ); // exactly the spec's injector, no viewId passed
+      await settle();
+      // ignore: avoid_print
+      print('S1: after tap: taps=$taps frames=${frames.length}');
 
-    expect(taps, 1, reason: 'the spec injector did not reach the GestureDetector');
-    expect(frames.length, greaterThan(before));
-    expect(frames.last.id, greaterThan(lastId));
-    expect(frames.last.centre, [0, 255, 0, 255]);
+      expect(
+        taps,
+        1,
+        reason: 'the spec injector did not reach the GestureDetector',
+      );
+      expect(frames.length, greaterThan(before));
+      expect(frames.last.id, greaterThan(lastId));
+      expect(frames.last.centre, [0, 255, 0, 255]);
 
-    // ignore: avoid_print
-    print('S1: ${frames.length} frames captured at ${frames.last.w}x${frames.last.h}');
-  });
+      // ignore: avoid_print
+      print(
+        'S1: ${frames.length} frames captured at ${frames.last.w}x${frames.last.h}',
+      );
+    },
+  );
 }
