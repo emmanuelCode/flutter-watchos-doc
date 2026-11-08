@@ -4,6 +4,9 @@ name: watchos-proofs
 # When everything finishes, the last job ("RESULTS") prints ONE block to copy and paste.
 on: [push, pull_request, workflow_dispatch]
 
+env:
+  SPEC_FILE: flutter_watchos_specification_v7.md   # <- repo-root spec file; change if yours is named differently
+
 jobs:
   # ---------------------------------------------------------------------------
   flutter-side:
@@ -34,6 +37,14 @@ jobs:
         if: ${{ !cancelled() }}
         run: bash "$GITHUB_WORKSPACE/watchos-proofs/scripts/step.sh" P3 flutter test test/p3_tap_injection_test.dart
 
+      - name: "X1 · [spec code] Extract the Dart classes from the spec"
+        if: ${{ !cancelled() }}
+        run: bash "$GITHUB_WORKSPACE/watchos-proofs/scripts/step.sh" X1 python3 "$GITHUB_WORKSPACE/watchos-proofs/scripts/extract_spec_code.py" "$GITHUB_WORKSPACE/$SPEC_FILE" dart
+
+      - name: "S1 · [spec code] Real WatchFrameStreamer + WatchInputInjector: capture, tap, next frame"
+        if: ${{ !cancelled() }}
+        run: bash "$GITHUB_WORKSPACE/watchos-proofs/scripts/step.sh" --needs X1 S1 flutter test test/s1_spec_streamer_injector_test.dart
+
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
@@ -52,7 +63,7 @@ jobs:
   swift-watchos:
     name: "Swift side — watchOS Simulator"
     runs-on: macos-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     defaults:
       run:
         shell: bash
@@ -110,6 +121,46 @@ jobs:
         timeout-minutes: 10
         run: bash scripts/step.sh --sim A4 bash scripts/run_swift_test.sh A4_CdeclSymbolTests
 
+      - name: "P9 · Sustained transport: 100 frames x pixel ratio 1.0/2.0 x raw/zlib/delta (numbers logged)"
+        if: ${{ !cancelled() }}
+        timeout-minutes: 15
+        run: bash scripts/step.sh --sim P9 bash scripts/run_with_server.sh dart_tools/ws_stream_server.dart 8766 P9_TransportThroughputTests
+
+      - name: "X2 · [spec code] Extract the Swift code from the spec"
+        if: ${{ !cancelled() }}
+        timeout-minutes: 10
+        run: bash scripts/step.sh X2 python3 scripts/extract_spec_code.py "$GITHUB_WORKSPACE/$SPEC_FILE" swift
+
+      - name: "S0 · [spec code] The spec's Swift code compiles for watchOS"
+        if: ${{ !cancelled() }}
+        timeout-minutes: 15
+        run: bash scripts/step.sh --needs P1,X2 S0 bash scripts/swift_pkg.sh build swift_spec SpecCode
+
+      - name: "S2 · [spec code] Color(argb:) renders the right channels"
+        if: ${{ !cancelled() }}
+        timeout-minutes: 10
+        run: bash scripts/step.sh --needs P1,X2,S0 S2 bash scripts/swift_pkg.sh test swift_spec SpecCode SpecCodeTests/S2_ColorARGBTests
+
+      - name: "S3 · [spec code] WatchFrameStore + WatchFrameView draw a frame (and what scale really does)"
+        if: ${{ !cancelled() }}
+        timeout-minutes: 10
+        run: bash scripts/step.sh --needs P1,X2,S0 S3 bash scripts/swift_pkg.sh test swift_spec SpecCode SpecCodeTests/S3_FrameStoreViewTests
+
+      - name: "S4 · [spec code] WatchFrameView redraws when a new frame is published"
+        if: ${{ !cancelled() }}
+        timeout-minutes: 10
+        run: bash scripts/step.sh --needs P1,X2,S0 S4 bash scripts/swift_pkg.sh test swift_spec SpecCode SpecCodeTests/S4_FrameViewRedrawTests
+
+      - name: "S5 · [spec code] WatchRenderStore + @_cdecl slab API + WatchCanvasView draw Dart-style bytes"
+        if: ${{ !cancelled() }}
+        timeout-minutes: 10
+        run: bash scripts/step.sh --needs P1,X2,S0 S5 bash scripts/swift_pkg.sh test swift_spec SpecCode SpecCodeTests/S5_RenderStoreCanvasTests
+
+      - name: "S6 · [spec code] WatchCanvasView redraws on frameTick with no TimelineView (experimental)"
+        if: ${{ !cancelled() }}
+        timeout-minutes: 10
+        run: bash scripts/step.sh --needs P1,X2,S0 S6 bash scripts/swift_pkg.sh test swift_spec SpecCode SpecCodeTests/S6_CanvasTickRedrawTests
+
       - name: "Collect measurements logged by the tests"
         if: ${{ always() }}
         run: |
@@ -131,6 +182,7 @@ jobs:
           path: |
             /tmp/proof_logs
             /tmp/xcodebuild_*.log
+            /tmp/server_*.log
             /tmp/ws_server.log
           if-no-files-found: ignore
 
