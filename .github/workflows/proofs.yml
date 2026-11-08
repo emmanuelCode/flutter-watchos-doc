@@ -148,4 +148,4 @@ jobs:
           pattern: results-*
           path: results
       - name: "Print the result sheet"
-        run: python3 scripts/report.py results
+        run: python3 watchos-proofs/scripts/report.py results
