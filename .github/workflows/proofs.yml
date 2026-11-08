@@ -13,7 +13,7 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: ./watchos-proofs/flutter_proofs
+        working-directory: ./watchos-proofs
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
