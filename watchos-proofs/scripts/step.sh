@@ -40,8 +40,10 @@ echo "RESULT|$ID|$STATUS" >> "$RESULTS"
 grep -oE "(INFO: |P[0-9]+: |A[0-9]+: |S[0-9]+: ).*" "$LOG" | head -n 10 | cut -c1-200 | sed "s/^/INFO|$ID|/" >> "$RESULTS"
 
 if [ "$STATUS" = "FAIL" ]; then
+  # Flutter prints the real reason in an "EXCEPTION CAUGHT" block (Expected/Actual/Which/stack)
+  EXC=$(awk '/EXCEPTION CAUGHT/{f=1} f{print; if(++n>=30) exit}' "$LOG" | cut -c1-240)
   EV=$(grep -E "error:|Error:|FAIL|failed|XCTAssert|Exception|Testing failed|Unable to|TEST FAILED|No such|not found" "$LOG" | head -n 20 | cut -c1-240)
-  [ -n "$EV" ] || EV=$(tail -n 20 "$LOG" | cut -c1-240)
-  printf '%s\n' "$EV" | sed "s/^/EVID|$ID|/" >> "$RESULTS"
+  [ -n "$EXC$EV" ] || EV=$(tail -n 20 "$LOG" | cut -c1-240)
+  { [ -n "$EXC" ] && printf '%s\n' "$EXC"; [ -n "$EV" ] && printf '%s\n' "$EV"; } | sed "s/^/EVID|$ID|/" >> "$RESULTS"
 fi
 exit "$CODE"

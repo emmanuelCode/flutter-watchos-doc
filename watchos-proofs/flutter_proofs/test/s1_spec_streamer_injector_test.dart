@@ -49,15 +49,19 @@ void main() {
     expect(streamer.pixelRatio, 1.0, reason: 'v6 defaulted to 2.0 (4x the bytes) - must stay 1.0');
     streamer.start();
 
-    // Run a frame in the real-async zone so toImage can complete, then give the capture time to finish.
+    // The streamer starts toImage from a frame callback, i.e. inside the fake-async test zone.
+    // toImage completes on the REAL event loop, but the streamer's continuation waits in the FAKE
+    // microtask queue — so alternate: pump (flushes fake microtasks) and a real-async wait.
     Future<void> settle() async {
-      await tester.runAsync(() async {
+      for (var i = 0; i < 6; i++) {
         await tester.pump();
-        await Future<void>.delayed(const Duration(milliseconds: 400));
-      });
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+      }
     }
 
     await settle();
+    // ignore: avoid_print
+    print('S1: after first settle: frames=${frames.length}');
     expect(frames, isNotEmpty, reason: 'streamer produced no frame');
     expect([frames.last.w, frames.last.h], [800, 600]); // logical test surface at pixelRatio 1.0
     expect(frames.last.centre, [255, 0, 0, 255]);
@@ -66,6 +70,8 @@ void main() {
 
     WatchInputInjector().tap(const Offset(400, 300)); // exactly the spec's injector, no viewId passed
     await settle();
+    // ignore: avoid_print
+    print('S1: after tap: taps=$taps frames=${frames.length}');
 
     expect(taps, 1, reason: 'the spec injector did not reach the GestureDetector');
     expect(frames.length, greaterThan(before));
