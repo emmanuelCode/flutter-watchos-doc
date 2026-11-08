@@ -18,16 +18,17 @@ TITLES = {
     "P9": "Sustained transport: 100 frames x (1.0, 2.0) x (raw, zlib, delta)",
     "X1": "[spec code] Dart classes extracted from the spec",
     "S1": "[spec code] real WatchFrameStreamer + WatchInputInjector: capture, tap, next frame",
+    "S7": "[spec code] captureNow() pushes the current frame from an idle app",
     "X2": "[spec code] Swift code extracted from the spec",
     "S0": "[spec code] Spec Swift code compiles for watchOS",
     "S2": "[spec code] Color(argb:) renders the right channels",
-    "S3": "[spec code] WatchFrameStore + WatchFrameView draw a frame (scale behaviour)",
+    "S3": "[spec code] WatchFrameStore + WatchFrameView draw a frame, stretched to fill",
     "S4": "[spec code] WatchFrameView redraws when a new frame is published",
     "S5": "[spec code] WatchRenderStore + @_cdecl slab API + WatchCanvasView draw Dart-style bytes",
     "S6": "[spec code] WatchCanvasView redraws on frameTick, no TimelineView (experimental)",
 }
 ORDER = ["F0", "P1", "P0", "P2", "P3", "P4", "P5", "P6", "A1", "A2", "A3", "A4", "P9",
-         "X1", "S1", "X2", "S0", "S2", "S3", "S4", "S5", "S6"]
+         "X1", "S1", "S7", "X2", "S0", "S2", "S3", "S4", "S5", "S6"]
 EXPECTED_ARTIFACTS = ["results-flutter", "results-swift"]
 ICON = {"PASS": "✅", "FAIL": "❌", "BLOCKED": "⛔", "MISSING": "⬜"}
 

@@ -59,9 +59,10 @@ If the spec's code blocks change shape, the X1/X2 steps fail loudly. Generated f
 | P9 | 100 frames at pixel ratio 1.0 / 2.0 in raw, zlib and XOR-delta encodings: every frame decodes correctly; bytes/frame, ms/frame and decode ms/frame are logged (loopback, debug build, optimistic frame content) | `dart_tools/ws_stream_server.dart` + `.../P9_TransportThroughputTests.swift` |
 | X1 / X2 | The spec's Dart / Swift blocks can be extracted | `scripts/extract_spec_code.py` |
 | S1 | The real `WatchFrameStreamer` captures frames and the real `WatchInputInjector` tap changes the next one | `flutter_proofs/test/s1_spec_streamer_injector_test.dart` |
+| S7 | `captureNow()` pushes the current frame from an idle app (and an idle app sends nothing by itself) | `flutter_proofs/test/s7_capture_now_test.dart` |
 | S0 | The spec's Swift code compiles for watchOS | `scripts/swift_pkg.sh` |
 | S2 | `Color(argb:)` renders the right channels, incl. alpha | `swift_spec/Tests/.../S2_ColorARGBTests.swift` |
-| S3 | `WatchFrameStore` + `WatchFrameView` draw a frame; also measures whether `store.scale` changes anything | `.../S3_FrameStoreViewTests.swift` |
+| S3 | `WatchFrameStore` + `WatchFrameView` draw a frame stretched to fill the view, whatever size it was captured at | `.../S3_FrameStoreViewTests.swift` |
 | S4 | `WatchFrameView` redraws when a new frame is published (experimental) | `.../S4_FrameViewRedrawTests.swift` |
 | S5 | `WatchRenderStore` + `@_cdecl` slab API + `WatchCanvasView` draw bytes written the way Dart writes them | `.../S5_RenderStoreCanvasTests.swift` |
 | S6 | `WatchCanvasView` redraws on `frameTick` with no `TimelineView` (experimental) | `.../S6_CanvasTickRedrawTests.swift` |

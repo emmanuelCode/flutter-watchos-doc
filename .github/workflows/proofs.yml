@@ -45,6 +45,10 @@ jobs:
         if: ${{ !cancelled() }}
         run: bash "$GITHUB_WORKSPACE/watchos-proofs/scripts/step.sh" --needs X1 S1 flutter test test/s1_spec_streamer_injector_test.dart
 
+      - name: "S7 · [spec code] captureNow() pushes the current frame from an idle app"
+        if: ${{ !cancelled() }}
+        run: bash "$GITHUB_WORKSPACE/watchos-proofs/scripts/step.sh" --needs X1 S7 flutter test test/s7_capture_now_test.dart
+
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
@@ -141,7 +145,7 @@ jobs:
         timeout-minutes: 10
         run: bash scripts/step.sh --needs P1,X2,S0 S2 bash scripts/swift_pkg.sh test swift_spec SpecCode SpecCodeTests/S2_ColorARGBTests
 
-      - name: "S3 · [spec code] WatchFrameStore + WatchFrameView draw a frame (and what scale really does)"
+      - name: "S3 · [spec code] WatchFrameStore + WatchFrameView draw a frame, stretched to fill"
         if: ${{ !cancelled() }}
         timeout-minutes: 10
         run: bash scripts/step.sh --needs P1,X2,S0 S3 bash scripts/swift_pkg.sh test swift_spec SpecCode SpecCodeTests/S3_FrameStoreViewTests
