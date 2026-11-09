@@ -1,0 +1,10 @@
+name: engine_probe
+description: Tiny app whose rendered colours/pixels prove what an engine did.
+publish_to: none
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+dependencies:
+  flutter:
+    sdk: flutter
+flutter:
+  uses-material-design: false

@@ -5,7 +5,7 @@ name: watchos-proofs
 on: [push, pull_request, workflow_dispatch]
 
 env:
-  SPEC_FILE: flutter_watchos_specification_v7.md   # <- repo-root spec file; change if yours is named differently
+  SPEC_FILE: flutter_watchos_specification_v7_2.md   # <- repo-root spec file; change if yours is named differently
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -242,9 +242,97 @@ jobs:
           if-no-files-found: ignore
 
   # ---------------------------------------------------------------------------
+  # Open Question 9: can a Flutter engine run on watchOS?  Built from scratch: official Flutter artifacts,
+  # Apple's SDK and embedder.h only. No third-party toolchain.
+  engine:
+    name: "Engine on watchOS — from official artifacts (gap analysis + experiments)"
+    runs-on: macos-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+        working-directory: ./watchos-proofs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: "Record tool versions"
+        run: |
+          bash scripts/env_info.sh swift
+          bash scripts/env_info.sh flutter
+
+      - name: "Q0 · [engine] What a hosted runner offers (cpu, memory, disk)"
+        run: bash scripts/step.sh Q0 bash scripts/q0_capacity.sh
+
+      - name: "Q1 · [engine] Real engine source: facts, and does the engine base layer (fml) compile for watchOS?"
+        if: ${{ !cancelled() }}
+        timeout-minutes: 20
+        run: bash scripts/step.sh Q1 bash scripts/q1_engine_source.sh
+
+      - name: "Q2 · [engine] Official engine pieces gathered (embedder library, icu data, iOS engine, probe bundle)"
+        if: ${{ !cancelled() }}
+        timeout-minutes: 25
+        run: bash scripts/step.sh Q2 bash scripts/q2_engine_artifacts.sh
+
+      - name: "Q2s · [engine] A watch simulator boots"
+        if: ${{ !cancelled() }}
+        timeout-minutes: 15
+        run: bash scripts/step.sh Q2s bash scripts/pick_watch_sim.sh
+
+      - name: "Q3 · [engine] Gap analysis: what the official engines import that watchOS lacks"
+        if: ${{ !cancelled() }}
+        timeout-minutes: 15
+        run: bash scripts/step.sh --needs Q2 Q3 bash scripts/q3_gap.sh
+
+      - name: "Q4 · [engine] EXPERIMENT: retagged embedder library loads in a watchOS process"
+        if: ${{ !cancelled() }}
+        timeout-minutes: 10
+        run: bash scripts/step.sh --needs Q2,Q2s Q4 bash scripts/q4_retarget_load.sh
+
+      - name: "Q5 · [engine] EXPERIMENT: Flutter runs in a watchOS process via embedder.h (software renderer)"
+        if: ${{ !cancelled() }}
+        timeout-minutes: 10
+        run: bash scripts/step.sh --needs Q1,Q2,Q2s,Q4 Q5 bash scripts/q5_run_engine.sh
+
+      - name: "Collect measurements logged by the steps"
+        if: ${{ always() }}
+        run: |
+          if [ -f /tmp/watch_proofs/results.log ]; then
+            sed 's/^/INFO|SIM|/' /tmp/watch_proofs/results.log >> /tmp/proof_results.txt
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: results-engine
+          path: /tmp/proof_results.txt
+          if-no-files-found: warn
+
+      - name: "Upload the frame the engine rendered (look at it!)"
+        uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: engine-frame
+          path: /tmp/engine_frame.png
+          if-no-files-found: ignore
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ failure() }}
+        with:
+          name: logs-engine
+          path: |
+            /tmp/proof_logs
+            /tmp/engine/host.out
+            /tmp/engine/load.out
+            /tmp/fml_results.txt
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
   report:
     name: "RESULTS — open this job and copy the block"
-    needs: [flutter-side, swift-watchos, e2e]
+    needs: [flutter-side, swift-watchos, e2e, engine]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:

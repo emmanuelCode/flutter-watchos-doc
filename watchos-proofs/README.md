@@ -76,6 +76,28 @@ If the spec's code blocks change shape, the X1/X2 steps fail loudly. Generated f
 
 E1 runs in its own job (`e2e`) because it needs Flutter and the watchOS Simulator on the same machine.
 
+## Round 4 — Open Question 9: can a Flutter engine run on watchOS?
+
+Built from scratch with **official Flutter artifacts, Apple's SDK and `embedder.h` only** — no third-party toolchain —
+so anyone (including the Flutter team) can reproduce it. Building the engine itself from source is far beyond a free
+hosted runner (step Q0 prints what the runner actually offers), so this job asks the questions that CAN be answered:
+
+| ID | What it answers | Files |
+|---|---|---|
+| Q0 | What a hosted runner offers (cores, memory, disk) | `scripts/q0_capacity.sh` |
+| Q1 | Facts from the real engine source at this SDK's exact engine version (how the build tool and `fml/build_config.h` treat iOS vs macOS; any watchOS mentions) **and whether the engine's own base layer (`fml`) compiles for watchOS** | `scripts/q1_engine_source.sh`, `scripts/syntax_check_one.sh` |
+| Q2 | Gathers the official pieces: desktop embedder library, `icudtl.dat`, iOS engine, and a `flutter_assets` bundle of the probe app | `scripts/q2_engine_artifacts.sh`, `engine_probe/app/` |
+| Q3 | **Gap analysis:** which libraries and symbols the official engines import that the watchOS SDK does not provide | `scripts/engine_gap.py`, `scripts/q3_gap.sh` |
+| Q4 | **Experiment:** retag the official desktop embedder library as a watchOS Simulator binary, stub the libraries watchOS lacks, and see whether a watchOS process can load it and find the embedder API | `scripts/q4_retarget_load.sh`, `scripts/make_stubs.py`, `engine_probe/engine_dlopen.c` |
+| Q5 | **Experiment:** run Flutter inside a watchOS process through `embedder.h` with the software renderer, using a host written from scratch, and check the rendered pixels (Dart ran, text rendered, a second region painted) | `scripts/q5_run_engine.sh`, `engine_probe/engine_host.c`, `scripts/frame_check.py` |
+
+The frame the engine rendered is uploaded as the `engine-frame` artifact.
+
+**Read the results correctly.** A retagged macOS binary is *not* a shippable port — it is an experiment to find out how far
+the real engine code gets inside a watchOS process and exactly what stops it. Q3's numbers are findings, not pass/fail.
+A real port needs the engine built with its own build tool for a watchOS SDK, which needs a larger machine than a
+free runner. The gap list from Q3/Q4 is what that port has to replace.
+
 ## Run locally (Mac with Xcode + Flutter)
 
 ```bash

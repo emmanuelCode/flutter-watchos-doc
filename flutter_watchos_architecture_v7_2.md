@@ -2,10 +2,10 @@
 ### Architecture & MVP Strategy Document
 > A Flutter platform embedder targeting standalone Apple Watch
 
-**Status:** Brainstorm / Draft — not yet validated by implementation (no code in this document has been compiled or run — see Validation Strategy)
+**Status:** Draft — partially validated: 25 automated CI checks pass on a macOS runner with the watchOS Simulator, including an end-to-end run of the whole dev loop (see Validation Results). Not yet validated: the Flutter engine on watchOS, on-device memory and speed, real-network behaviour.
 **Minimum target:** watchOS 10+ / Apple Watch Series 4+ (device floor under review — see Open Questions)
 **Last updated:** November 2026
-**Version:** v7.0
+**Version:** v7.2
 
 ---
 
@@ -256,6 +256,10 @@ class WatchFrameStreamer {
     });
   }
 
+  /// Call when a watch (re)connects. An idle app produces no frames, so without this a
+  /// newly connected watch would show nothing until something on screen changes.
+  Future<void> captureNow() => _capture();
+
   Future<void> _capture() async {
     if (_captureInFlight) return; // drop frames rather than queue them
     final boundary = boundaryKey.currentContext?.findRenderObject()
@@ -296,15 +300,17 @@ class WatchInputInjector {
 }
 ```
 
+> ✅ **Verified (check S1):** the real streamer captures frames and the real injector's tap changes the next one. The check also showed that after `start()` nothing is captured until Flutter next produces a frame, and an idle app produces none. `captureNow()` (new in v7.1, covered by check S7) closes that gap: call it whenever a client connects or asks for a resync (Open Question 2).
+
 ### Known Risks
 
 | Risk | Notes |
 |---|---|
-| `toImage` + `toByteData` cost | Each capture is an asynchronous GPU→CPU readback plus a full-frame copy — the likely frame-rate ceiling regardless of network. Measure it in spike S1 before committing to 30 fps |
-| Bandwidth | Raw RGBA is ≈ 192 KB per frame at pixelRatio 1.0 and ≈ 767 KB at 2.0 — see the arithmetic below. Needs diffing, dirty rectangles, or compression (arithmetic only; real behaviour unmeasured) |
+| `toImage` + `toByteData` cost | Each capture is an asynchronous GPU→CPU readback plus a full-frame copy — the likely frame-rate ceiling regardless of network. Headless capture works (checks P2, S1), but those timings come from the test renderer, which has no real GPU, so real readback cost is still unmeasured |
+| Bandwidth | Raw RGBA is ≈ 192 KB per frame at pixelRatio 1.0 and ≈ 767 KB at 2.0 — see the arithmetic below. Measured: full-frame zlib shrank the test frames to ≈ 1 KB / 3.9 KB (≈ 180–195×) — but those frames are mostly static, so worst-case content is still unmeasured (see Validation Results) |
 | Dev ≠ prod coverage | Mode 1 does not exercise the watchOS engine, memory ceiling, or performance — see "What Each Mode Actually Validates" |
 | Input latency | A WiFi round trip makes interaction feel laggy — acceptable for development, not for end users |
-| Headless host | The app must produce frames on the dev machine without a visible window (hidden desktop window or `flutter-tester`) — which one works is unverified (Open Question 1) |
+| Headless host | The app must produce frames on the dev machine without a visible window (hidden desktop window or `flutter-tester`) — works in `flutter test` on a macOS runner (checks P2, S1); a real hidden desktop window or `flutter-tester` process is still untested (Open Question 1) |
 | Rendering mismatch | Pixels rendered on the dev machine are not guaranteed to match on-device rendering (fonts, scaling, colour) |
 
 #### Bandwidth arithmetic (uncompressed RGBA, 4 bytes per pixel)
@@ -320,8 +326,8 @@ Candidate mitigations (none measured):
 
 1. Default to `pixelRatio` 1.0 in development; raise it only for fidelity checks.
 2. Send only on change — already the case, because the persistent frame callback fires only when Flutter produces a frame.
-3. Diff against the previous frame and send only changed tiles (dirty rectangles).
-4. Compress tiles with zlib — mostly-black OLED layouts should compress very well (expectation).
+3. Diff against the previous frame and send only changed tiles (dirty rectangles). Measured for XOR-delta + zlib: only ≈ 11–12% smaller than plain zlib, and ≈ 20–40× slower to decode in a debug build — not worth it as a first step.
+4. Compress with zlib — measured ≈ 180–195× smaller on mostly-static test frames (≈ 31 KB/s at 1.0 and ≈ 118 KB/s at 2.0 for 30 fps); busy content will compress worse.
 5. Cap the capture rate (for example 15 fps) in development; the readback is the bottleneck anyway.
 6. Long term: avoid GPU readback entirely by using Mode 2's software present callback.
 
@@ -387,9 +393,6 @@ import SwiftUI
 // Latest frame received over the WebSocket, already decoded to a CGImage
 // (wrap the RGBA bytes in a CGDataProvider and build the CGImage from it).
 final class WatchFrameStore: ObservableObject {
-    // Set `scale` BEFORE `latest`. It must equal the pixelRatio the Dart side
-    // captured at, and travels with each frame.
-    var scale: CGFloat = 1
     @Published var latest: CGImage? = nil
 }
 
@@ -400,12 +403,14 @@ struct WatchFrameView: View {
         // No TimelineView needed — each published frame triggers a redraw.
         Canvas { context, size in
             guard let frame = store.latest else { return }
-            context.draw(Image(decorative: frame, scale: store.scale),
+            context.draw(Image(decorative: frame, scale: 1),
                          in: CGRect(origin: .zero, size: size))
         }
     }
 }
 ```
+
+> ✅ **Verified (checks S3, S4):** the frame is stretched to fill the view, so it fills the screen whatever `pixelRatio` the Dart side captured at. That is why v7.0's `scale` field had no effect and was removed. Stretching is only correct when the captured frame has the same aspect ratio as the view: capture a boundary sized to the watch's logical screen, because a mismatched aspect ratio would distort the image. Publishing a new frame redraws the view with no `TimelineView` (shown with an off-screen `ImageRenderer`, not yet on a live screen).
 
 ---
 
@@ -503,26 +508,29 @@ Not estimated until Open Question 1 is answered. The estimate depends on whether
 | Production runtime | Real Flutter engine on device via embedder API | Framework requires `dart:ui`, which the engine implements; a no-engine build can't run Flutter widgets |
 | Rendering architecture | Engine rasterizes (Path A). Display-list opcodes (Path B) are a separate research architecture in Appendix A | Mixing them leaves two renderers and unused protocols — see Architecture Decision |
 | Dev loop host | watchOS Simulator over loopback first; physical watch second | No hardware needed to start; Simulator results do not cover memory, speed, or parity |
+| Frame transport encoding (dev mode) | Full-frame raw-deflate (zlib) by default; XOR-delta rejected for now | Measured ≈ 180–195× smaller than raw, and delta saved only ≈ 11–12% more while decoding ≈ 20–40× slower (debug build). Provisional until worst-case content is measured |
+| Late-joining client | Call `WatchFrameStreamer.captureNow()` on connect / resync | An idle app produces no frames — found by check S1, verified by S7 and E1 |
+| Input coordinates | The watch sends taps in logical points of its own screen; the host adds the app's screen origin before injecting | Verified end to end at `pixelRatio` 1.0 (E1). At 2.0 the watch must divide frame-pixel coordinates by the ratio — untested |
 
 ---
 
 ## Validation Strategy — Compile Before You Specify
 
-> No code in this document has been compiled or run. Fixing that does not require owning a Mac or an Apple Watch: GitHub-hosted macOS runners provide Xcode and the watchOS Simulator (free for public repositories at the time of writing — verify current terms and limits).
+> These checks run in CI on GitHub-hosted macOS runners with the watchOS Simulator — no Mac or Apple Watch needed (free for public repositories at the time of writing — verify current terms and limits). v7.1 records their first results. The runnable proofs live in `watchos-proofs/`; the spec's own code blocks are extracted from this file and tested automatically. The spike IDs S0–S4 below are planning milestones; the individual check IDs (F0, P0–P9, A1–A4, X1–X2, S0–S7) are the steps of `proofs.yml` and are listed under Validation Results.
 
 **Rule:** a code section counts as specified only once its snippet compiles in CI. Any revision that changes code must update the status table below.
 
 ### Validation Spikes
 
-| ID | Spike | Runs on | Pass criteria |
+| ID | Spike | Pass criteria | Status |
 |---|---|---|---|
-| S0 | Swift compile + unit test: `WatchFrameStore`, `WatchFrameView` (plus Appendix A: `Color(argb:)`, `WatchRenderStore`, `WatchCanvasView`) | macOS runner, `xcodebuild test` against a watchOS Simulator destination | Builds for watchOS Simulator; tests pass; Canvas redraws once per published frame with no `TimelineView` |
-| S1 | Dart: `WatchFrameStreamer` + `WatchInputInjector` under `flutter test` with no window | macOS runner, `flutter test` | Non-empty RGBA captured from a `RepaintBoundary`; capture ms/frame recorded — answers Open Question 1 |
-| S2 | Loopback WebSocket: Dart server → watchOS Simulator client | macOS runner | Simulator connects; frames decode and draw; bytes/frame and fps logged (Open Questions 10, 11) |
-| S3 | Appendix A only: Dart writer ↔ Swift reader byte-for-byte on shared fixtures (mock slabs, no engine) | both toolchains | Golden bytes identical; alignment and padding cases pass; text drawn at `.topLeading` matches the expected position |
-| S4 | Engine on watchOS feasibility (Open Question 9) | Probably local or self-hosted — an engine build may exceed hosted-runner limits | Engine compiles for a watchOS target; a hello-world frame reaches the present callback |
+| S0 | Swift compile + unit tests of the watch-side renderer code | Builds for watchOS Simulator; tests pass; Canvas redraws once per published frame with no `TimelineView` | ✅ Done — checks P0, P4, P5, S0, S2–S6 |
+| S1 | Dart: `WatchFrameStreamer` + `WatchInputInjector` under `flutter test` with no window | Non-empty RGBA captured from a `RepaintBoundary`; tap changes the next frame | ✅ Done — checks P2, P3, S1 (found the idle-app gap → `captureNow()`, check S7) |
+| S2 | Loopback WebSocket: Dart server → watchOS Simulator client | Simulator connects; frames decode and draw; bytes/frame and fps logged (Open Questions 10, 11) | ✅ Done — checks P6, P9, E1 |
+| S3 | Appendix A only: wire format, mailbox, symbol lookup | Golden bytes identical; alignment and padding cases pass; text at `.topLeading` | ✅ Done with a stand-in writer — checks A1–A4; the real `ZeroCopyCanvas` class is not yet tested |
+| S4 | Engine on watchOS feasibility (Open Question 9) | Engine compiles for a watchOS target; a hello-world frame reaches the present callback | ⬜ Not started — probably needs a local or self-hosted machine |
 
-Sketch of the CI workflow (unverified — confirm the available watchOS runtime and device name first):
+The real workflow is `.github/workflows/proofs.yml` (it picks the newest available watch simulator at run time and prints one result sheet). The original planning sketch is kept for reference:
 
 ```yaml
 # .github/workflows/watchos-spikes.yml
@@ -550,23 +558,71 @@ jobs:
 
 ### Code Verification Status
 
-| Snippet | Location | Status | Spike |
+| Snippet | Location | Status | Checks |
 |---|---|---|---|
-| `WatchFrameStreamer`, `WatchInputInjector` | The Frame Streamer | Unverified | S1 |
-| `WatchFrameStore`, `WatchFrameView` | The SwiftUI Renderer | Unverified | S0 |
-| `Color(argb:)` | A.0 | Unverified | S0 |
-| `ZeroCopyCanvas` | A.2 | Unverified | S3 |
-| `WatchRenderStore`, `WatchCanvasView` | A.2 | Unverified | S0, S3 |
+| `WatchFrameStreamer` | The Frame Streamer | Tested — captures frames; idle-app gap found | P2, S1 |
+| `WatchFrameStreamer.captureNow()` | The Frame Streamer | Tested — an idle app sends nothing by itself; `captureNow()` pushes exactly the current frame, and a connecting watch received it | S7, E1 |
+| `WatchInputInjector` | The Frame Streamer | Tested — tap reaches a `GestureDetector`, next frame changes (no `viewId` needed in the test environment); a tap sent by the watch client was replayed through it | P3, S1, E1 |
+| `WatchFrameStore`, `WatchFrameView` | The SwiftUI Renderer | Tested — draws stretched to fill; redraws on publish (off-screen renderer) | S0, S3, S4 |
+| Whole dev loop: real streamer + injector ↔ WebSocket ↔ real `WatchFrameStore` / `WatchFrameView` | Mode 1 (Frame Streamer + SwiftUI Renderer) | Tested in the Simulator — host side ran inside `flutter test`, not a real desktop app | E1 |
+| `Color(argb:)` | A.0 | Tested — channels and alpha | S2 |
+| `WatchRenderStore`, `@_cdecl` slab API, `WatchCanvasView` (DRAW_RECT path) | A.2 | Tested — Dart-style bytes drawn; redraws on `frameTick` with no `TimelineView` (off-screen renderer) | S0, S5, S6 |
+| `WatchCanvasView` DRAW_TEXT / DRAW_RRECT parsing | A.2 | Unverified | — |
+| `ZeroCopyCanvas` (Dart writer) | A.2 | Unverified — the wire layout was checked with a stand-in writer, not this class | A3 |
+| Mailbox state machine | A.2 | Tested (stand-in and the real store) | A2, S5 |
+| `@_cdecl` symbol lookup | A.1 | Tested — found by `dlsym`; a Dart FFI call on watchOS is unverified | A4 |
 | `WatchCanvas` interceptor | A.4 | Unverified — hook unresolved (Open Question 7) | — |
-| `@_cdecl` / Dart FFI bridge | A.1 | Unverified | S3 |
 
-Status values progress Unverified → Compiles → Tested → Measured.
+Status values progress Unverified → Compiles → Tested → Measured. "Tested" here means tested in the Simulator on a macOS runner, not on a watch.
+
+### Validation Results
+
+Latest CI run — macOS 26.7 runner, Xcode 26.6, watchOS 26.5 Simulator, Flutter 3.47, Dart 3.13. **25 of 25 checks passed.**
+
+| Checks | What they showed |
+|---|---|
+| F0, P1, P0 | A hosted runner has a watchOS Simulator that boots; the Swift package builds for watchOS and runs XCTest there with no host app |
+| P2 | Headless capture works: `RepaintBoundary.toImage` → raw RGBA, byte counts exactly as computed (191,664 B at 1.0; 766,656 B at 2.0) |
+| P3, S1 | A tap injected through `GestureBinding` reaches a `GestureDetector` and the next frame changes; the real streamer captured frames, but only once a frame was scheduled |
+| P4, P5 | RGBA → `CGImage` → SwiftUI `Canvas` draws the right pixels |
+| P6 | Dart WebSocket server → watchOS client: a 192 KB frame down, a tap up, over loopback (first frame including the handshake: 166–232 ms) |
+| S0, S2–S6 | The spec's own Swift compiles for watchOS; `Color(argb:)` is correct including alpha; the store and view draw, stretch to fill, and redraw on publish; the real slab API and `WatchCanvasView` draw Dart-written bytes and redraw on `frameTick` with no `TimelineView` |
+| A1 | Text drawn at `(0,0)`: 47 lit pixels with `.topLeading` versus 10 with the default `.center` |
+| A2–A4 | Mailbox logic; Dart-written bytes parsed correctly by Swift; a `@_cdecl` symbol is found by `dlsym` |
+| S7 | An idle app produces no frames by itself (0 received); `captureNow()` pushes exactly the current one |
+| E1 | **The whole dev loop, no stand-ins.** The real `WatchFrameStreamer` and `WatchInputInjector` (inside `flutter test`, playing the Mac) behind a real WebSocket, talking to a watchOS client that uses the real `WatchFrameStore` and `WatchFrameView`. On connect, `captureNow()` sent frame 0 and the view showed red; a tap at the watch-screen centre (99,121) was mapped into app coordinates and replayed; frame 1 arrived and the same live view showed green. Two frames in total, one tap |
+
+**Sustained transport (check P9)** — 100 frames per configuration, ranges across six CI runs, over loopback in a debug build:
+
+| Pixel ratio | Encoding | Bytes per frame | ms per frame | Decode ms per frame |
+|---|---|---|---|---|
+| 1.0 | raw | 191,668 | 0.5–1.2 | 0.0–0.1 |
+| 1.0 | zlib | 1,047 | 0.9–1.9 | 0.8–1.7 |
+| 1.0 | XOR-delta + zlib | 922 | 24.8–42.8 | 24.6–42.5 |
+| 2.0 | raw | 766,660 | 1.5–7.0 | 0.1–0.2 |
+| 2.0 | zlib | 3,935 | 3.2–8.2 | 3.1–7.9 |
+| 2.0 | XOR-delta + zlib | 3,495 | 90.9–169.8 | 90.7–169.5 |
+
+- Full-frame zlib made the test frames ≈ 180–195× smaller: ≈ 31 KB/s at 1.0 and ≈ 118 KB/s at 2.0 for 30 fps, against 5.7 and 23 MB/s raw.
+- XOR-delta saved only ≈ 11–12% more than plain zlib and decoded ≈ 20–40× slower, so full-frame zlib is the default for now.
+- **These numbers are best-case.** The frames are mostly static black, the transport is loopback, the Simulator runs on a Mac CPU (a real watch will decode more slowly), and the Swift code ran as a debug build.
+
+**Still not validated:**
+- the Flutter engine on watchOS (Open Question 9), and everything that depends on it
+- memory, CPU and battery on a real watch
+- real Wi-Fi behaviour (latency, suspension, reconnect)
+- worst-case compressibility with busy full-screen content
+- real GPU readback cost — the capture timings above come from the test renderer
+- the real `ZeroCopyCanvas`, DRAW_TEXT / DRAW_RRECT parsing, the Dart FFI calls, and the paint hook
+- on-screen redraw behaviour — the redraw checks used an off-screen renderer
+- the dev loop with a real macOS app as the host — E1's Flutter side ran inside `flutter test` (no window) as a stand-in for the dev machine
+- hot reload, sustained streaming through the whole loop (E1 sent two frames), and taps at `pixelRatio` 2.0
 
 ---
 
 ## Open Questions
 
-1. **Headless frame capture** — can a stock Flutter app produce frames on the dev machine without a visible window (hidden desktop window or `flutter-tester`), and can `RepaintBoundary.toImage` be captured at an acceptable rate? This must be answered before Phase 1 begins. The entire MVP depends on it.
+1. **Headless frame capture** — can a stock Flutter app produce frames on the dev machine without a visible window (hidden desktop window or `flutter-tester`), and can `RepaintBoundary.toImage` be captured at an acceptable rate? **Answered for `flutter test` on a macOS runner (checks P2, S1): yes.** Still open: a real hidden desktop window or `flutter-tester` process, and real GPU readback timing.
 2. **WebSocket reconnection** — watchOS suspends foreground sessions in always-on display mode. Define reconnect strategy + a full-frame resync after a drop.
 3. **`save` / `restore` canvas state** *(display-list path)* — SwiftUI Canvas has no direct `saveGState` equivalent. Needs a workaround via nested `Canvas` calls or manual transform tracking.
 4. **Text measurement parity** *(display-list path)* — bundled font-metrics tables must match on-device rendering exactly or layouts will shift. Needs validation testing across font sizes and weights. Not applicable to modes where Flutter rasterizes its own text.
@@ -575,8 +631,8 @@ Status values progress Unverified → Compiles → Tested → Measured.
 7. **Paint hook** *(display-list path)* — `PaintingContext` constructs its own canvases and recorded `Picture`s are opaque, so subclassing `Canvas` does not intercept painting. A viable hook needs a custom `PaintingContext` / `PipelineOwner` / `RenderView` stack, or `watchos_ui` primitives that paint through their own API instead of `dart:ui` `Canvas`.
 8. **Device floor and ABI** — some older watches are believed to use the `arm64_32` (ILP32) ABI. Does Dart AOT (and the engine) support it? The answer may raise the minimum device above Series 4.
 9. **Engine on watchOS** — can the Flutter engine be built for watchOS, which renderer backend is usable through the embedder API, and do binary size, memory, and App Store review all work out?
-10. **Simulator networking and CI availability** — can the watchOS Simulator reach the host's loopback interface, and do hosted macOS runners ship a usable watchOS runtime and device? Answered by spike S2.
-11. **Frame-transport budget** — which combination of lower pixel ratio, dirty-rect diffs, zlib, and a capture-rate cap fits the 33 ms budget, first over loopback and then over real Wi-Fi? Answered by spikes S1 and S2.
+10. **Simulator networking and CI availability** — can the watchOS Simulator reach the host's loopback interface, and do hosted macOS runners ship a usable watchOS runtime and device? **Answered (checks P1, P6): yes — the Simulator reached the host's loopback, and the hosted runner had a watchOS 26.5 runtime.**
+11. **Frame-transport budget** — which combination of lower pixel ratio, dirty-rect diffs, zlib, and a capture-rate cap fits the 33 ms budget, first over loopback and then over real Wi-Fi? **Partly answered (check P9):** full-frame zlib is ≈ 1 KB / 3.9 KB per frame on mostly-static test frames, far inside any budget. Still open: worst-case (busy) content, real Wi-Fi, and decode time on a real watch.
 
 ---
 
@@ -591,13 +647,13 @@ Status values progress Unverified → Compiles → Tested → Measured.
 - [ ] Document Digital Crown scroll physics contract
 
 ### Phase 0.5 — CI Validation Spikes (can run alongside Phase 0)
-- [ ] Stand up a GitHub Actions macOS workflow with a watchOS Simulator destination
-- [ ] S0 — compile and unit-test the watch-side Swift renderer
-- [ ] S1 — headless frame capture under `flutter test`; record capture time per frame
-- [ ] S2 — loopback WebSocket between a Dart server and the Simulator client
-- [ ] S3 — only if Appendix A is pursued: wire-format fixtures for writer and reader
+- [x] Stand up a GitHub Actions macOS workflow with a watchOS Simulator destination
+- [x] S0 — compile and unit-test the watch-side Swift renderer
+- [x] S1 — headless frame capture under `flutter test` (timings come from the test renderer; real GPU readback still unmeasured)
+- [x] S2 — loopback WebSocket between a Dart server and the Simulator client
+- [x] S3 — Appendix A wire-format fixtures (stand-in writer; real `ZeroCopyCanvas` still to test)
 - [ ] S4 — engine-on-watchOS feasibility (likely local or self-hosted)
-- [ ] Update the Code Verification Status table after each spike
+- [x] Update the Code Verification Status table after each spike (done for v7.1)
 
 ### Phase 1 — Proof of Concept / MVP (Dev Mode)
 - [ ] Answer Open Question 1 — headless frame capture
@@ -606,7 +662,7 @@ Status values progress Unverified → Compiles → Tested → Measured.
 - [ ] Build SwiftUI Canvas frame view (Swift)
 - [ ] WebSocket listener on watchOS (Swift, foreground session)
 - [ ] Basic event round-trip: tap → `WatchInputInjector` → `setState` → new frame
-- [ ] **Milestone 1a: `WatchText` + `WatchButton` renders in the watchOS Simulator with hot reload (no hardware, CI-verified)**
+- [ ] **Milestone 1a: `WatchText` + `WatchButton` renders in the watchOS Simulator with hot reload (no hardware, CI-verified)** — the loop itself is verified (check E1, with `flutter test` as the host); hot reload and a real desktop-app host are not yet covered
 - [ ] **Milestone 1b: the same on a real watch over Wi-Fi ← MVP demo milestone**
 - [ ] Measure and publish frame time, bandwidth, and tap-to-photon latency
 
@@ -1377,6 +1433,22 @@ func render(commands: [DrawCommand], context: inout GraphicsContext, size: CGSiz
 ---
 
 ## Changelog
+
+### v7.2 — November 2026 (Whole Loop Verified)
+- **Validated (check E1):** the real `WatchFrameStreamer` + `WatchInputInjector` behind a real WebSocket, talking to a watchOS client that renders with the real `WatchFrameStore` + `WatchFrameView` — frame down, tap up, next frame changes, and the live view shows both states. First run, no code changes needed. 25 of 25 checks now pass
+- **Status changes:** `captureNow()` Unverified → Tested (S7, E1); `WatchInputInjector` gained E1; the Code Verification Status table has a new row for the whole loop
+- **Corrected:** the transport ranges in v7.1 came from four runs, and later runs fell outside some of them. Ranges now cover six runs (for example zlib at 1.0 reaches 1.9 ms/frame; delta at 2.0 reaches 169.8 ms/frame), and the delta decode penalty is stated as ≈ 20–40× slower rather than ≈ 30×. Byte counts did not change in any run
+- **Recorded:** a design note on input coordinates (the watch sends logical points of its own screen; the host adds the screen origin), verified at `pixelRatio` 1.0 only
+- **Limits stated plainly:** E1's host side ran inside `flutter test`, not a real macOS app; it exchanged two frames, raw (no zlib); hot reload, sustained streaming through the loop, real GPU readback, real Wi-Fi, device memory/speed and the engine on watchOS remain unvalidated
+
+### v7.1 — November 2026 (First CI Results Folded In)
+- **Validated:** 22 automated checks passed on a hosted macOS runner with the watchOS 26.5 Simulator — see Validation Results. Code Verification Status, spike statuses, Open Questions 1, 10 and 11, and the Phase 0.5 checklist updated accordingly
+- **Found and fixed (check S1):** after `start()` the streamer captures nothing until Flutter next produces a frame, and an idle app produces none, so a client that connects late would see no image. Added `captureNow()`; covered by new check S7
+- **Found and fixed (check S3):** `WatchFrameStore.scale` (added in v7.0) had no effect — the view stretches the frame to fill, so output was identical for scale 1 and 2. Removed it, and documented that stretch-to-fill needs a matching aspect ratio
+- **Measured (check P9):** full-frame zlib shrinks mostly-static test frames ≈ 180–195×; XOR-delta saves only ≈ 11–12% more and decodes ≈ 30× slower. Dev-mode default is now full-frame zlib. Best-case numbers only: static frames, loopback, debug build, Mac CPU
+- **Corrected:** the injector needed no `viewId` in the test environment (the check passed with the snippet as written); my earlier suspicion that the snippet lacked an import was also wrong — it compiles
+- **Corrected:** the Sendable concern about `OSAllocatedUnfairLock` holding a raw-pointer struct did not materialise — the spec's Swift compiles for watchOS (check S0)
+- **Unchanged and still open:** engine on watchOS, device memory and speed, real Wi-Fi, worst-case frame compression, real GPU readback cost
 
 ### v7.0 — November 2026 (Single Primary Path + Simulator-First Validation)
 > Entries for v1–v6 are kept unchanged. Where v7 corrects a claim made in an earlier version, the correction is listed here.

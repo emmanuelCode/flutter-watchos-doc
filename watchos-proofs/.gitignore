@@ -3,3 +3,7 @@ __pycache__/
 # generated from the spec by scripts/extract_spec_code.py
 swift_spec/Sources/SpecCode/*.swift
 flutter_proofs/lib/spec/*.dart
+# engine probe app build output
+engine_probe/app/.dart_tool/
+engine_probe/app/build/
+engine_probe/app/pubspec.lock
