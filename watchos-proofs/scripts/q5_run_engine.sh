@@ -21,9 +21,11 @@ PID=$!
 for _ in $(seq 1 90); do kill -0 "$PID" 2>/dev/null || break; sleep 1; done
 kill "$PID" 2>/dev/null; wait "$PID" 2>/dev/null; HOST_RC=$?
 cat /tmp/engine/host.out | tail -n 40
-grep -E "FlutterEngineRun|frames presented|NO FRAME|DLOPEN FAIL|snapshot symbols visible|VM snapshot|Could not|Segmentation" /tmp/engine/host.out | while read -r l; do rl "Q5: host: $l"; done
+grep -E "FlutterEngineRun|frames presented|NO FRAME|DLOPEN FAIL|snapshot symbols visible|VM snapshot|Could not|Segmentation|CRASH signal|VM service" /tmp/engine/host.out | while read -r l; do rl "Q5: host: $l"; done
 
 if [ ! -f /tmp/engine_frame.bin ]; then
+  # where did it crash? print the host's own crash report (symbolised frames), logged into the sheet
+  awk '/^CRASH signal/{p=1} p' /tmp/engine/host.out | head -n 40 | while read -r l; do rl "Q5: crash: $l"; done
   echo "DIAG: host exit code $HOST_RC; last output lines:"; tail -n 15 /tmp/engine/host.out | sed 's/^/DIAG: /'
   exit 1
 fi

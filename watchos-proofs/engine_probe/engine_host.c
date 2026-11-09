@@ -5,7 +5,9 @@
 // Output file: three uint32 (width, height, rowBytes) then raw BGRA bytes of the latest frame.
 #include <CoreFoundation/CoreFoundation.h>
 #include <dlfcn.h>
+#include <execinfo.h>
 #include <pthread.h>
+#include <signal.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -35,11 +37,39 @@ static void on_log(const char* tag, const char* message, void* user_data) {
   fprintf(stderr, "[engine %s] %s\n", tag ? tag : "", message ? message : "");
 }
 
+
+// Crash reporter: say WHERE it crashed (fault address, thread, and symbolised frames). The zeroed stub symbols we
+// injected for libraries watchOS lacks keep their original names, so a call into one shows up by name.
+static void on_crash(int sig, siginfo_t* si, void* uc) {
+  char buf[200];
+  int n = snprintf(buf, sizeof buf, "\nCRASH signal=%d code=%d fault_addr=%p thread_is_main=%d\n", sig, si->si_code,
+                   si->si_addr, pthread_main_np());
+  write(2, buf, n);
+  void* frames[64];
+  int c = backtrace(frames, 64);
+  backtrace_symbols_fd(frames, c, 2);
+  _exit(128 + sig);
+}
+
+static void install_crash_handler(void) {
+  static char altstack[1 << 16];
+  stack_t ss = {.ss_sp = altstack, .ss_size = sizeof altstack, .ss_flags = 0};
+  sigaltstack(&ss, NULL);
+  struct sigaction sa;
+  memset(&sa, 0, sizeof sa);
+  sa.sa_sigaction = on_crash;
+  sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
+  sigemptyset(&sa.sa_mask);
+  int sigs[] = {SIGSEGV, SIGBUS, SIGILL, SIGTRAP, SIGABRT};
+  for (size_t i = 0; i < sizeof sigs / sizeof sigs[0]; i++) sigaction(sigs[i], &sa, NULL);
+}
+
 typedef FlutterEngineResult (*RunFn)(size_t, const FlutterRendererConfig*, const FlutterProjectArgs*, void*, FlutterEngine*);
 typedef FlutterEngineResult (*MetricsFn)(FlutterEngine, const FlutterWindowMetricsEvent*);
 
 int main(int argc, char** argv) {
   if (argc < 8) { fprintf(stderr, "usage: engine_host lib assets icu out width height seconds\n"); return 64; }
+  install_crash_handler();
   const char *lib = argv[1], *assets = argv[2], *icu = argv[3], *out = argv[4];
   int width = atoi(argv[5]), height = atoi(argv[6]), seconds = atoi(argv[7]);
 
@@ -52,8 +82,8 @@ int main(int argc, char** argv) {
   MetricsFn metrics = (MetricsFn)dlsym(h, "FlutterEngineSendWindowMetricsEvent");
   if (!run || !metrics) { fprintf(stderr, "embedder API symbols missing\n"); return 3; }
 
-  fprintf(stderr, "snapshot symbols visible: vm=%p isolate=%p\n",
-          dlsym(RTLD_DEFAULT, "kDartVmSnapshotData"), dlsym(RTLD_DEFAULT, "kDartIsolateSnapshotData"));
+  fprintf(stderr, "snapshot symbols visible: kDartSnapshotData=%p kDartSnapshotText=%p\n",
+          dlsym(RTLD_DEFAULT, "kDartSnapshotData"), dlsym(RTLD_DEFAULT, "kDartSnapshotText"));
 
   FlutterRendererConfig cfg;
   memset(&cfg, 0, sizeof cfg);
