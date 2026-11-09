@@ -66,6 +66,7 @@ repo, run = os.environ.get("GITHUB_REPOSITORY", "?"), os.environ.get("GITHUB_RUN
 out.append(f"commit {os.environ.get('GITHUB_SHA', '?')[:7]} | run https://github.com/{repo}/actions/runs/{run}")
 out.append("")
 out.append("ENVIRONMENT")
+out.append(f"  proof run: commit {os.environ.get('GITHUB_SHA', '?')[:7]}, run {run}  <- if this is the same as the previous sheet, nothing new ran")
 out += [f"  {e}" for e in env] or ["  (none recorded)"]
 out.append("")
 out.append("RESULTS")

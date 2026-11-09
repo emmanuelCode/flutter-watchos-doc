@@ -52,5 +52,56 @@ def main(binary, outdir):
     subprocess.run(["codesign", "--force", "-s", "-", binary], check=True)
 
 
+def overlay_one(binary, outdir, symbol):
+    """Q4 iteration. dyld reports ONE missing symbol per failed load. Find which library the engine imports it from
+    and replace that library's load command with an overlay dylib that (a) defines the missing symbols and
+    (b) re-exports the real library, so every other symbol still resolves to the genuine one.
+    State (the symbols collected so far per library) is kept in <outdir>/overlay_state.json.
+    Returns False if the symbol is not imported by the engine at all (cannot help)."""
+    import json
+    state_path = os.path.join(outdir, "overlay_state.json")
+    state = json.load(open(state_path)) if os.path.exists(state_path) else {}
+    lib_short = next((f for s, f in g.undefined(binary) if s == symbol), None)
+    if lib_short is None:
+        g.rl(f"Q4:   {symbol}: the engine does not import it; cannot overlay")
+        return False
+    linked = g.linked_libs(binary)
+    current = next((l for l in linked if g.short(l) == lib_short), None)
+    if current is None:
+        g.rl(f"Q4:   {symbol}: no load command found for library {lib_short}")
+        return False
+    entry = state.setdefault(lib_short, {"orig": current, "symbols": []})
+    if symbol not in entry["symbols"]:
+        entry["symbols"].append(symbol)
+    orig = entry["orig"]
+    base = os.path.basename(orig)
+    ovdir = os.path.join(outdir, f"ov_{lib_short}")
+    os.makedirs(ovdir, exist_ok=True)
+    csrc = os.path.join(ovdir, "ov.c")
+    with open(csrc, "w") as f:
+        for i, s in enumerate(entry["symbols"]):
+            f.write(f'char ov_sym_{i}[256] __asm__("{s}") __attribute__((used, aligned(16)));\n')
+        f.write("void ov_anchor(void) {}\n")
+    # re-export the real library (frameworks by name, /usr/lib dylibs by -l name)
+    m = g.re.match(r"/System/Library/(?:Private)?Frameworks/([^/]+)\.framework/", g.flat(orig))
+    if m:
+        reexp = ["-Wl,-reexport_framework," + m.group(1)]
+    else:
+        ln = g.re.sub(r"^lib", "", g.short(orig))
+        reexp = ["-Wl,-reexport-l" + ln]
+    newpath = f"@loader_path/{os.path.basename(outdir)}/ov_{lib_short}/{base}"
+    dylib = os.path.join(ovdir, base)
+    subprocess.run(["xcrun", "--sdk", "watchsimulator", "clang", "-arch", "arm64", "-mwatchos-simulator-version-min=10.0",
+                    "-dynamiclib", csrc, "-o", dylib, "-install_name", newpath] + reexp, check=True)
+    subprocess.run(["codesign", "--force", "-s", "-", dylib], check=True)
+    subprocess.run(["install_name_tool", "-change", current, newpath, binary], check=True)
+    subprocess.run(["codesign", "--force", "-s", "-", binary], check=True)
+    json.dump(state, open(state_path, "w"))
+    g.rl(f"Q4:   overlay {lib_short}: now defines {len(entry['symbols'])} symbol(s), re-exports the real library")
+    return True
+
+
 if __name__ == "__main__":
+    if len(sys.argv) == 5 and sys.argv[1] == "--add":
+        sys.exit(0 if overlay_one(sys.argv[2], sys.argv[3], sys.argv[4]) else 1)
     main(sys.argv[1], sys.argv[2])

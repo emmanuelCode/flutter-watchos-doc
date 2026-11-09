@@ -29,7 +29,22 @@ else
   echo "== attempt 2: stub the libraries watchOS does not have =="
   python3 "$ROOT/scripts/make_stubs.py" "$OUT/FlutterEmbedder" "$OUT/stubs" || { echo "FAIL: stubbing failed"; exit 1; }
   if try_load; then rl "Q4: attempt 2 loaded after stubbing"; RC=0
-  else RC=1; rl "Q4: attempt 2 failed: $(grep -m1 -E 'DLOPEN FAIL' /tmp/engine/load.out | cut -c1-400)"; fi
+  else
+    RC=1; rl "Q4: attempt 2 failed: $(grep -m1 -E 'DLOPEN FAIL' /tmp/engine/load.out | cut -c1-400)"
+    # Attempt 3+: dyld names one missing symbol per failed load. Define it in an overlay for its library
+    # (the overlay re-exports the real library) and retry, until the library loads or no further progress.
+    echo "== attempt 3+: overlay each symbol dyld reports missing, one at a time =="
+    LAST=""; N=0
+    while [ "$N" -lt 60 ]; do
+      SYM=$(grep -m1 -oE 'Symbol not found: [^ ]+' /tmp/engine/load.out | sed 's/Symbol not found: //')
+      if [ -z "$SYM" ]; then rl "Q4: stopped: the failure is not a missing symbol: $(grep -m1 -E 'DLOPEN FAIL' /tmp/engine/load.out | cut -c1-400)"; break; fi
+      if [ "$SYM" = "$LAST" ]; then rl "Q4: stopped: $SYM still missing after an overlay"; break; fi
+      python3 "$ROOT/scripts/make_stubs.py" --add "$OUT/FlutterEmbedder" "$OUT/stubs" "$SYM" || { rl "Q4: stopped: could not overlay $SYM"; break; }
+      LAST="$SYM"; N=$((N+1))
+      if try_load; then RC=0; rl "Q4: loaded after $N overlaid symbol(s)"; break; fi
+    done
+    [ "$RC" -ne 0 ] && rl "Q4: final blocker after $N overlay(s): $(grep -m1 -E 'DLOPEN FAIL' /tmp/engine/load.out | cut -c1-400)"
+  fi
 fi
 grep -E "SYMBOL" /tmp/engine/load.out | while read -r l; do rl "Q4: $l"; done
 [ "$RC" -eq 0 ] && echo "PASS: a watchOS process loaded the engine library and found the embedder API"
