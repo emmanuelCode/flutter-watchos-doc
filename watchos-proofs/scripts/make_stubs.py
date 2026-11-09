@@ -62,6 +62,9 @@ def overlay_one(binary, outdir, symbol):
     state_path = os.path.join(outdir, "overlay_state.json")
     state = json.load(open(state_path)) if os.path.exists(state_path) else {}
     lib_short = next((f for s, f in g.undefined(binary) if s == symbol), None)
+    if lib_short is not None:
+        # after an overlay, nm prints the full @loader_path/... install name instead of the short name
+        lib_short = g.short(lib_short)
     if lib_short is None:
         g.rl(f"Q4:   {symbol}: the engine does not import it; cannot overlay")
         return False
