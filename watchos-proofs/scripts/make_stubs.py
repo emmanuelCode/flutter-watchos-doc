@@ -12,6 +12,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import engine_gap as g
 
 
+REAL_IMPL = {"_OBJC_CLASS_$_NSFont": "nsfont_stub.m"}
+
+
 def main(binary, outdir):
     os.makedirs(outdir, exist_ok=True)
     syms, installs = g.load_sdk(g.sdk_path("watchsimulator"), "watchos")
@@ -31,16 +34,27 @@ def main(binary, outdir):
     for lib in missing_libs:
         name = g.short(lib)
         wanted = sorted({s for s, f in undef if f == name})
+        g.rl(f"Q4:   {name} is imported for: " + ", ".join(wanted[:12]) + (" ..." if len(wanted) > 12 else ""))
+        # a few symbols get a small REAL implementation instead of zeroed data, because the engine calls them
+        # during start-up (found by the Q5 crash report); everything else stays zeroed
+        real_srcs = [os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "engine_probe", fn)
+                     for sym, fn in REAL_IMPL.items() if sym in wanted]
+        zeroed = [s for s in wanted if s not in REAL_IMPL]
+        if real_srcs:
+            g.rl(f"Q4:   {name}: real implementation for " + ", ".join(s for s in wanted if s in REAL_IMPL))
         csrc = os.path.join(outdir, f"stub_{name}.c")
         with open(csrc, "w") as f:
-            for i, s in enumerate(wanted):
+            for i, s in enumerate(zeroed):
                 # the assembler label must come directly after the declarator, attributes after it
                 f.write(f'char stub_sym_{i}[256] __asm__("{s}") __attribute__((used, aligned(16)));\n')
             f.write("void stub_anchor(void) {}\n")
         dylib = os.path.join(outdir, f"stub_{name}.dylib")
         newpath = f"@loader_path/{os.path.basename(outdir)}/stub_{name}.dylib"
-        subprocess.run(["xcrun", "--sdk", "watchsimulator", "clang", "-arch", "arm64", "-mwatchos-simulator-version-min=10.0",
-                        "-dynamiclib", csrc, "-o", dylib, "-install_name", newpath], check=True)
+        cmd = ["xcrun", "--sdk", "watchsimulator", "clang", "-arch", "arm64", "-mwatchos-simulator-version-min=10.0",
+               "-dynamiclib", csrc] + real_srcs + ["-o", dylib, "-install_name", newpath]
+        if real_srcs:
+            cmd += ["-framework", "Foundation", "-lobjc"]
+        subprocess.run(cmd, check=True)
         subprocess.run(["codesign", "--force", "-s", "-", dylib], check=True)
         subprocess.run(["install_name_tool", "-change", lib, newpath, binary], check=True)
         g.rl(f"Q4:   stub {name}: defines {len(wanted)} symbols")
