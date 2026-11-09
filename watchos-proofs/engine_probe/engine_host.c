@@ -43,11 +43,17 @@ int main(int argc, char** argv) {
   const char *lib = argv[1], *assets = argv[2], *icu = argv[3], *out = argv[4];
   int width = atoi(argv[5]), height = atoi(argv[6]), seconds = atoi(argv[7]);
 
-  void* h = dlopen(lib, RTLD_NOW | RTLD_LOCAL);
+  // RTLD_GLOBAL: in a JIT (debug) engine the Dart VM snapshots are looked up BY SYMBOL (kDartVmSnapshotData, ...) in the
+  // current process. A host that links the engine normally has them in its global scope; a dlopen'd library with
+  // RTLD_LOCAL hides them, which produces "VM snapshot invalid and could not be inferred from settings".
+  void* h = dlopen(lib, RTLD_NOW | RTLD_GLOBAL);
   if (!h) { fprintf(stderr, "DLOPEN FAIL: %s\n", dlerror()); return 2; }
   RunFn run = (RunFn)dlsym(h, "FlutterEngineRun");
   MetricsFn metrics = (MetricsFn)dlsym(h, "FlutterEngineSendWindowMetricsEvent");
   if (!run || !metrics) { fprintf(stderr, "embedder API symbols missing\n"); return 3; }
+
+  fprintf(stderr, "snapshot symbols visible: vm=%p isolate=%p\n",
+          dlsym(RTLD_DEFAULT, "kDartVmSnapshotData"), dlsym(RTLD_DEFAULT, "kDartIsolateSnapshotData"));
 
   FlutterRendererConfig cfg;
   memset(&cfg, 0, sizeof cfg);
