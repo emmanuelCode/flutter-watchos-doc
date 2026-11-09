@@ -31,7 +31,12 @@ rl "Q1: mentions of watchOS in the sampled engine source (fml, embedder, tools):
 rl "Q1: how fml/build_config.h tells iOS from macOS:"
 grep -nE "TARGET_OS|FML_OS_(IOS|MACOSX)" "$E/fml/build_config.h" | head -n 14 | sed 's/^/Q1:   /' | tee -a /tmp/watch_proofs/results.log
 
-echo "== compile the engine's fml base layer for the watchOS Simulator (syntax-only) =="
+rl "Q1: how Apple's headers describe a watchOS Simulator target (TargetConditionals.h):"
+echo '#include <TargetConditionals.h>' | xcrun --sdk watchsimulator clang -E -dM -target arm64-apple-watchos10.0-simulator \
+  -isysroot "$(xcrun --sdk watchsimulator --show-sdk-path)" -x c - 2>/dev/null \
+  | grep -E "define TARGET_OS_(IPHONE|IOS|WATCH|SIMULATOR|OSX|MAC) " | sort | sed 's/#define /Q1:   /' | tee -a /tmp/watch_proofs/results.log
+
+echo "== compile the engine's fml base layer for the watchOS Simulator (syntax-only, C++20 as the engine requires) =="
 find "$E/fml" \( -name '*.cc' -o -name '*.mm' \) \
   -not -name '*_unittest*' -not -name '*_benchmark*' -not -path '*/testing/*' \
   -not -path '*/platform/android/*' -not -path '*/platform/fuchsia/*' -not -path '*/platform/linux/*' -not -path '*/platform/win/*' \
