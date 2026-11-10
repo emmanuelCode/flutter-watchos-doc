@@ -5,7 +5,7 @@ name: watchos-proofs
 on: [push, pull_request, workflow_dispatch]
 
 env:
-  SPEC_FILE: flutter_watchos_architecture_v7_3.md   # <- repo-root spec file; change if yours is named differently
+  SPEC_FILE: flutter_watchos_architecture_v7_4.md   # <- repo-root spec file; change if yours is named differently
 
 jobs:
   # ---------------------------------------------------------------------------
