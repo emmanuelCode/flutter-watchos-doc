@@ -5,7 +5,7 @@ name: watchos-proofs
 on: [push, pull_request, workflow_dispatch]
 
 env:
-  SPEC_FILE: flutter_watchos_specification_v7_3.md   # <- repo-root spec file; change if yours is named differently
+  SPEC_FILE: flutter_watchos_architecture_v7_3.md   # <- repo-root spec file; change if yours is named differently
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -296,6 +296,11 @@ jobs:
         timeout-minutes: 10
         run: bash scripts/step.sh --needs Q1,Q2,Q2s,Q4 Q5 bash scripts/q5_run_engine.sh
 
+      - name: "Q6 · [engine] EXPERIMENT: Interactive loop (tap -> setState -> frame 2) + memory logged"
+        if: ${{ !cancelled() }}
+        timeout-minutes: 10
+        run: bash scripts/step.sh --needs Q1,Q2,Q2s,Q4,Q5 Q6 bash scripts/q6_interactive_engine.sh
+
       - name: "Collect measurements logged by the steps"
         if: ${{ always() }}
         run: |
@@ -318,6 +323,14 @@ jobs:
           path: /tmp/engine_frame.png
           if-no-files-found: ignore
 
+      - name: "Upload the interactive frame the engine rendered (look at it!)"
+        uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: engine-interactive-frame
+          path: /tmp/engine_frame2.png
+          if-no-files-found: ignore
+
       - uses: actions/upload-artifact@v4
         if: ${{ failure() }}
         with:
@@ -325,6 +338,7 @@ jobs:
           path: |
             /tmp/proof_logs
             /tmp/engine/host.out
+            /tmp/engine/interactive.out
             /tmp/engine/load.out
             /tmp/fml_results.txt
           if-no-files-found: ignore

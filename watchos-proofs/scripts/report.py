@@ -35,9 +35,10 @@ TITLES = {
     "Q3": "[engine] Gap analysis: what the official engines import that watchOS lacks",
     "Q4": "[engine] EXPERIMENT: retagged embedder library loads in a watchOS process and exports the embedder API",
     "Q5": "[engine] EXPERIMENT: Flutter runs in a watchOS process via embedder.h (software renderer); pixels checked",
+    "Q6": "[engine] EXPERIMENT: Interactive loop (tap -> setState -> frame 2) + memory logged",
 }
 ORDER = ["F0", "P1", "P0", "P2", "P3", "P4", "P5", "P6", "A1", "A2", "A3", "A4", "P9",
-         "X1", "S1", "S7", "X2", "S0", "S2", "S3", "S4", "S5", "S6", "E0", "E1", "Q0", "Q1", "Q2", "Q2s", "Q3", "Q4", "Q5"]
+         "X1", "S1", "S7", "X2", "S0", "S2", "S3", "S4", "S5", "S6", "E0", "E1", "Q0", "Q1", "Q2", "Q2s", "Q3", "Q4", "Q5", "Q6"]
 EXPECTED_ARTIFACTS = ["results-flutter", "results-swift", "results-e2e", "results-engine"]
 ICON = {"PASS": "✅", "FAIL": "❌", "BLOCKED": "⛔", "MISSING": "⬜"}
 
