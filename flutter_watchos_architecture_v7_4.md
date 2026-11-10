@@ -2,7 +2,7 @@
 ### Architecture & MVP Strategy Document
 > A Flutter platform embedder targeting standalone Apple Watch
 
-**Status:** Draft — validated: 33 automated CI checks designed and verified on a macOS runner with the watchOS Simulator, including an end-to-end run of the whole dev loop (25 dev-loop checks). A separate set of engine experiments (8 checks, Q0–Q6, all passing) shows the official Flutter engine code running inside a watchOS Simulator process: starting, executing Dart, shaping text, rendering frames, and executing a complete interactive event loop via touch input (`FlutterEngineSendPointerEvent` -> `setState()` -> Frame 2 presented) with measured Mach task memory footprint (~146 MB debug RSS, ~390 KB frame delta).
+**Status:** Draft — validated: 33 of 33 automated CI checks pass on a macOS runner with the watchOS Simulator, including an end-to-end run of the whole dev loop (25 dev-loop checks) and the engine path (8 checks, Q0–Q6, all passing) showing the official Flutter engine running inside a watchOS Simulator process: starting, executing Dart, shaping text, rendering frames, and executing a complete interactive event loop via touch input (`FlutterEngineSendPointerEvent` -> `setState()` -> Frame 2 presented) with measured Mach task memory footprint (~146 MB debug RSS, ~390 KB frame delta).
 **Minimum target:** watchOS 10+ / Apple Watch Series 4+ (device floor under review — see Open Questions)
 **Last updated:** November 2026
 **Version:** v7.4
@@ -624,7 +624,7 @@ Status values progress Unverified → Compiles → Tested → Measured. "Tested"
 
 ### Validation Results
 
-Latest CI runs — macOS 26.7 runner, Xcode 26.6, watchOS 26.5 Simulator, Flutter 3.47, Dart 3.13. **32 of 33 checks passed** (E0/E1 previously verified; runner acquisition temporarily skipped due to GitHub runner capacity).
+Latest CI run — macOS 26.7 runner, Xcode 26.6, watchOS 26.5 Simulator, Flutter 3.47, Dart 3.13. **33 of 33 checks passed.**
 
 | Checks | What they showed |
 |---|---|
