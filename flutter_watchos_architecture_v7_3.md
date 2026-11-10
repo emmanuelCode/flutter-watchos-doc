@@ -2,10 +2,10 @@
 ### Architecture & MVP Strategy Document
 > A Flutter platform embedder targeting standalone Apple Watch
 
-**Status:** Draft — partially validated: 25 automated CI checks pass on a macOS runner with the watchOS Simulator, including an end-to-end run of the whole dev loop (see Validation Results). Not yet validated: the Flutter engine on watchOS, on-device memory and speed, real-network behaviour.
+**Status:** Draft — partially validated: 25 automated CI checks pass on a macOS runner with the watchOS Simulator, including an end-to-end run of the whole dev loop. A separate set of engine experiments (7 more checks, all passing — 32 of 32 in total) shows the official Flutter engine code starting and drawing a frame inside a watchOS Simulator process after binary patches (see *Engine on watchOS — findings and proposed route*). Not validated: a from-source or AOT engine build for watchOS, anything on a real watch, on-device memory and speed, real-network behaviour.
 **Minimum target:** watchOS 10+ / Apple Watch Series 4+ (device floor under review — see Open Questions)
 **Last updated:** November 2026
-**Version:** v7.2
+**Version:** v7.3
 
 ---
 
@@ -528,7 +528,7 @@ Not estimated until Open Question 1 is answered. The estimate depends on whether
 | S1 | Dart: `WatchFrameStreamer` + `WatchInputInjector` under `flutter test` with no window | Non-empty RGBA captured from a `RepaintBoundary`; tap changes the next frame | ✅ Done — checks P2, P3, S1 (found the idle-app gap → `captureNow()`, check S7) |
 | S2 | Loopback WebSocket: Dart server → watchOS Simulator client | Simulator connects; frames decode and draw; bytes/frame and fps logged (Open Questions 10, 11) | ✅ Done — checks P6, P9, E1 |
 | S3 | Appendix A only: wire format, mailbox, symbol lookup | Golden bytes identical; alignment and padding cases pass; text at `.topLeading` | ✅ Done with a stand-in writer — checks A1–A4; the real `ZeroCopyCanvas` class is not yet tested |
-| S4 | Engine on watchOS feasibility (Open Question 9) | Engine compiles for a watchOS target; a hello-world frame reaches the present callback | ⬜ Not started — probably needs a local or self-hosted machine |
+| S4 | Engine on watchOS feasibility (Open Question 9) | Engine compiles for a watchOS target; a hello-world frame reaches the present callback | 🟨 Partly done — a retagged official debug engine runs in a Simulator process (checks Q0–Q5, see the engine section); a from-source watchOS build, AOT, and a real device are not started and need a larger machine |
 
 The real workflow is `.github/workflows/proofs.yml` (it picks the newest available watch simulator at run time and prints one result sheet). The original planning sketch is kept for reference:
 
@@ -608,7 +608,7 @@ Latest CI run — macOS 26.7 runner, Xcode 26.6, watchOS 26.5 Simulator, Flutter
 - **These numbers are best-case.** The frames are mostly static black, the transport is loopback, the Simulator runs on a Mac CPU (a real watch will decode more slowly), and the Swift code ran as a debug build.
 
 **Still not validated:**
-- the Flutter engine on watchOS (Open Question 9), and everything that depends on it
+- a from-source or AOT Flutter engine for watchOS, and everything on a real watch that depends on it (Open Question 9) — the Simulator experiment in the engine section does not cover these
 - memory, CPU and battery on a real watch
 - real Wi-Fi behaviour (latency, suspension, reconnect)
 - worst-case compressibility with busy full-screen content
@@ -617,6 +617,42 @@ Latest CI run — macOS 26.7 runner, Xcode 26.6, watchOS 26.5 Simulator, Flutter
 - on-screen redraw behaviour — the redraw checks used an off-screen renderer
 - the dev loop with a real macOS app as the host — E1's Flutter side ran inside `flutter test` (no window) as a stand-in for the dev machine
 - hot reload, sustained streaming through the whole loop (E1 sent two frames), and taps at `pixelRatio` 2.0
+
+### Engine on watchOS — findings and proposed route
+
+Everything here concerns Open Question 9. It is deliberately short: it is a starting point for anyone who wants to build a full implementation, not a design for one. All of it uses official Flutter artifacts, Apple's SDK and `embedder.h`; nothing depends on a third-party toolchain.
+
+**Experiment (checks Q0–Q5, watchOS 26.5 Simulator, macOS runner).** Google's published macOS embedder library (universal x86_64 + arm64; no arm64-only zip is published) was retagged as a watchOS Simulator binary and loaded by a small host written against the real `embedder.h` with the software renderer. Getting it to load took: rewriting 8 macOS-style versioned framework paths to the flat watchOS layout, stubbing 7 libraries the watchOS SDK lacks (AppKit, Metal, MetalPerformanceShaders, OpenGL, ApplicationServices and two Swift overlays), overlaying 4 CoreVideo Metal-texture-cache symbols that watchOS does not export, and a small real `NSFont` stand-in (the macOS text layer asks AppKit for the system font; a zeroed fake crashed there). The host also had to load the library with `RTLD_GLOBAL`, because a JIT engine finds its built-in Dart snapshot by symbol in the process.
+
+| Result | Detail |
+|---|---|
+| Loads and exports the embedder API | Q4 — `FlutterEngineRun` and the others resolve |
+| Dart executes | One frame presented (198×242); a stripe whose colour depends on `fib(20) == 6765` is green (printed in the sheet) |
+| Text shaping and fonts work | 1,516 bright glyph pixels in the middle stripe, on a black background (printed in the sheet) |
+| Byte order of the software present callback | **RGBA** in this engine build. An earlier run decoding the frame as BGRA read the pure-blue stripe as red; the checker was then changed to accept a frame only if exactly one byte order explains all four stripes, and it passed (check Q5, 32 of 32). The order is *inferred from that pass*: the sheet's per-step line limit cut off the explicit "byte order" line, which has since been raised. This is a property of the build, so a real port must re-measure it |
+
+**What this does not show.** It is a normal Mac process tagged as watchOS Simulator: Mac CPU and memory, and the debug engine compiles Dart as it runs (JIT), which this document assumes a real watch will not allow. The stubs are zeroed data, and the macOS engine still imports Metal and IOSurface code that never ran. It proves nothing about a source build, AOT, memory, speed, or App Store review, and the patched binary must never be distributed.
+
+**Facts read from the engine source at the pinned commit (`89c39edf…`) and its pinned Dart revision (`416e33b0…`):**
+- The build tool's target OS list is `android, ios, mac, linux, fuchsia, wasm, win, qnx` — no watchOS; `--simulator` is iOS-only.
+- `qnx` is the precedent for a new OS: CPU fixed to arm64 and Skia's GPU backends off (software-only). The embedder's software surface is on by default (`shell_enable_software`).
+- The embedder framework packaging runs only for macOS host builds; any other target gets a plain shared library.
+- `fml/build_config.h` marks every Apple target as macOS and then as iOS when `TARGET_OS_IPHONE` is set; Apple's header gives `TARGET_OS_IPHONE 1` and `TARGET_OS_WATCH 1` on watchOS, so the base layer treats watchOS as iOS.
+- With C++20, 48 of 54 sampled `fml` files compile for watchOS and none fail for an unavailable API; the other 6 stopped on `third_party` headers outside the sample, so they are undecided.
+- Dart's `tools/gn.py` accepts `watchos` and `watchos_simulator` and `globals.h` has a watchOS host macro; **whether the Dart VM builds and runs on watchOS is not verified.**
+- The watchOS SDK exports `CAMetalLayer`, `CGBitmapContextCreate` and `CTFontCreateWithName`, but not `MTLCreateSystemDefaultDevice` or `IOSurfaceCreate`. The overall "missing symbols" counts from the gap script are unreliable (it flags basic `libSystem` symbols), so no total is quoted.
+
+**Proposed route (untested).**
+0. *Build tool:* add `watchos` / `watchos_simulator` target OS, SDK and deployment-target variables, and a simulator path; start with the arm64 simulator.
+1. *Software-only configuration modelled on `qnx`:* turn off GL, Metal, Vulkan, Ganesh and Graphite, keep `shell_enable_software`, and stop the macOS-host rule that forces Metal on from applying to a watchOS target.
+2. *OS layers:* `fml` (largely compiles already), `third_party` (each library must accept the new OS — likely the largest volume of small edits), the Dart VM and `gen_snapshot` for a watchOS AOT target, and the text layer (use the iOS-style path, not the macOS `NSFont` one).
+3. *Host:* a Swift host over `embedder.h` — `FlutterEngineRun`, the software present callback into the existing `WatchFrameStore`/`WatchFrameView`, and `FlutterEngineSendPointerEvent` for touch (Digital Crown would have to be mapped to scroll-style events; untested).
+4. *Packaging:* a flat watchOS framework with `Info.plist`; AOT snapshot loaded through the embedder's AOT options; `icudtl.dat` bundled.
+5. *Device:* measure binary size, memory and frame time on real watches; check `arm64_32` (Open Question 8).
+
+**Policy constraints for anything shippable.** Release/AOT only; the debug engine, JIT and hot reload are development tools. Public Apple APIs only (not yet audited for a port). Apple's App Review Guideline 2.5.2 requires apps to be self-contained and bars downloading or executing code that changes their functionality. The Flutter team does not support custom engine builds long-term, so a port is community-maintained unless upstreamed; `qnx` shows new OS targets can exist in the tree.
+
+**Smallest further tests**, each proving less than "the engine works on watchOS": compile all of `fml` with the missing `third_party` headers supplied; build only the Dart VM for `watchos_simulator`; then a full from-source engine build on a larger or self-hosted machine; finally a real watch. A hosted runner (3 cores, 7 GB, 6 h cap) is not expected to be enough for the full build.
 
 ---
 
@@ -630,7 +666,7 @@ Latest CI run — macOS 26.7 runner, Xcode 26.6, watchOS 26.5 Simulator, Flutter
 6. **Xcode project structure** — where does the Swift watchOS runtime layer live relative to the Flutter project tree? Needs a defined monorepo layout.
 7. **Paint hook** *(display-list path)* — `PaintingContext` constructs its own canvases and recorded `Picture`s are opaque, so subclassing `Canvas` does not intercept painting. A viable hook needs a custom `PaintingContext` / `PipelineOwner` / `RenderView` stack, or `watchos_ui` primitives that paint through their own API instead of `dart:ui` `Canvas`.
 8. **Device floor and ABI** — some older watches are believed to use the `arm64_32` (ILP32) ABI. Does Dart AOT (and the engine) support it? The answer may raise the minimum device above Series 4.
-9. **Engine on watchOS** — can the Flutter engine be built for watchOS, which renderer backend is usable through the embedder API, and do binary size, memory, and App Store review all work out?
+9. **Engine on watchOS** — *Existence:* a third party's closed toolchain claims it (unverified by us). *Shown here:* the official debug engine code runs in a watchOS Simulator process after patches that cannot ship. *Open:* an open-source recipe (the build tool has no watchOS target; see the engine section), whether the Dart VM builds and runs on watchOS, AOT on a device, binary size, memory, device cost, and App Store acceptance.
 10. **Simulator networking and CI availability** — can the watchOS Simulator reach the host's loopback interface, and do hosted macOS runners ship a usable watchOS runtime and device? **Answered (checks P1, P6): yes — the Simulator reached the host's loopback, and the hosted runner had a watchOS 26.5 runtime.**
 11. **Frame-transport budget** — which combination of lower pixel ratio, dirty-rect diffs, zlib, and a capture-rate cap fits the 33 ms budget, first over loopback and then over real Wi-Fi? **Partly answered (check P9):** full-frame zlib is ≈ 1 KB / 3.9 KB per frame on mostly-static test frames, far inside any budget. Still open: worst-case (busy) content, real Wi-Fi, and decode time on a real watch.
 
@@ -673,7 +709,7 @@ Latest CI run — macOS 26.7 runner, Xcode 26.6, watchOS 26.5 Simulator, Flutter
 - [ ] Wire send gate — block critical violations from transmission
 
 ### Phase 3 — Production: Engine on Device
-- [ ] Feasibility study — Flutter engine on watchOS (Open Question 9)
+- [ ] Feasibility study — Flutter engine on watchOS (Open Question 9); Simulator experiment done, from-source build not started — see the engine section
 - [ ] Swift embedder host — `FlutterEngineRun`, present callback, input forwarding
 - [ ] Patch Dart AOT build targets to add watchOS as a platform
 - [ ] Replace iOS framework linkage with watchOS equivalents
@@ -1433,6 +1469,16 @@ func render(commands: [DrawCommand], context: inout GraphicsContext, size: CGSiz
 ---
 
 ## Changelog
+
+### v7.3 — November 2026 (Engine Experiment and Route)
+- **Added:** a short section, *Engine on watchOS — findings and proposed route*, written so someone else can pick the work up: what was run, what the engine source shows, a six-stage route, policy constraints, and the smallest further tests
+- **Measured (checks Q0–Q5):** the official debug engine, retagged and patched, starts in a watchOS Simulator process, runs Dart, shapes text and presents a frame through the software renderer. It does not ship and says nothing about a source build, AOT, a real device, memory or App Store review
+- **Found:** a retagged macOS engine cannot load on watchOS without path rewriting, library stubs and symbol overlays; the macOS text layer crashes on a fake `NSFont`; a JIT engine needs its snapshot symbols visible to the host; `fml` classifies watchOS as iOS; 48 of 54 sampled `fml` files compile with C++20
+- **Found:** the software present callback delivers RGBA in this engine build. First run decoded it as BGRA and saw the blue stripe as red; the checker now measures the order and requires exactly one order to explain every stripe. It passed on its first run, so RGBA is inferred from the pass — the explicit line was cut off by the sheet's 10-line limit, now 30
+- **Changed:** Open Question 9 reworded — existence is a third party's claim we have not verified; open items are the open-source recipe, Dart VM on watchOS, AOT, device cost and App Store acceptance. Spike S4 and the Phase 3 feasibility item updated
+- **Withdrawn:** the first engine-base-layer compile result (C++17 where the source needs C++20), the early missing-library and symbol counts, and the gap script's overall symbol totals
+- **Validated:** 32 of 32 checks pass in the latest run — the 25 dev-loop checks and Q0–Q5. Q5 is an experiment on a patched, retagged debug engine in the Simulator; it is not a shippable result
+- **Unchanged:** every dev-loop "not validated" item
 
 ### v7.2 — November 2026 (Whole Loop Verified)
 - **Validated (check E1):** the real `WatchFrameStreamer` + `WatchInputInjector` behind a real WebSocket, talking to a watchOS client that renders with the real `WatchFrameStore` + `WatchFrameView` — frame down, tap up, next frame changes, and the live view shows both states. First run, no code changes needed. 25 of 25 checks now pass
