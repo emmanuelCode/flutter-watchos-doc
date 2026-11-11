@@ -80,6 +80,7 @@ Built only from official Flutter artifacts, Apple's SDK and `embedder.h` — no 
 | Q4 | Experiment | Retag the official desktop embedder library as a watchOS Simulator binary and see whether a watchOS process can load it | Finds exactly what stops the real engine code | It loads, after rewriting 8 framework paths, stubbing 7 absent libraries and overlaying 4 CoreVideo symbols; `FlutterEngineRun` and two other API symbols resolve. A retagged macOS binary is not a shippable port |
 | Q5 | Experiment | Run Flutter inside a watchOS process through `embedder.h` with the software renderer, using a host written from scratch; check the rendered pixels | Shows how far the real engine gets | Dart executed (a stripe is green only if `fib(20) == 6765`), text shaped and drew (1,516 glyph pixels) and a frame came through the present callback. The pixel byte order of the callback is RGBA in this engine build, inferred from the pass. *Limits:* a patched debug (JIT) engine in a Mac-hosted Simulator process; it proves nothing about a source build, AOT, a real watch, memory, speed or App Store review |
 | Q6 | Experiment | Interactive loop inside watchOS process: tap injected via `FlutterEngineSendPointerEvent`, Dart `setState` executed, Frame 2 rendered and verified; memory footprint logged | Shows the engine runs an interactive event loop on watchOS | Dart received touch input, executed `setState`, reshaped text to 'TAP', repainted yellow/cyan stripes, and presented Frame 2. Resident and virtual memory measured via Mach task info. *Limits:* JIT debug engine in Simulator. |
+| Q7 | Experiment | Crown scroll input (signal_kind=scroll -> setState -> Frame 3) + low memory hook | Demonstrates rotary event handling and low-memory embedder hook | Pointer scroll signal reached Dart (`Listener` -> `PointerScrollEvent` -> `setState`), repainted text to 'CROWN', rendered Frame 3; `FlutterEngineNotifyLowMemoryWarning` succeeded without crashing. *Limits:* Synthetic engine signal, no hardware Crown or SwiftUI `.digitalCrownRotation`. |
 
 ### What the results mean together
 
@@ -87,9 +88,9 @@ Built only from official Flutter artifacts, Apple's SDK and `embedder.h` — no 
 - **The official engine code can start and draw a frame under the watchOS Simulator SDK after patches that cannot ship** (Q0–Q5). That shows the engine is not fundamentally hostile to the SDK. It is not a port.
 - **Still unproven:** an engine built from source for watchOS, the Dart VM on watchOS, AOT code, anything on a real watch, memory and speed there, real Wi-Fi, and App Store acceptance.
 
-- **Interactive Flutter engine loop on watchOS (Q0–Q6):** the official engine starts, executes Dart, shapes text, renders frames, and processes live touch input (`FlutterEngineSendPointerEvent` -> `setState` -> Frame 2) with real Mach resident memory measured (~146 MB in debug mode, 390 KB frame delta).
+- **Interactive Flutter engine loop on watchOS (Q0–Q7):** the official engine starts, executes Dart, shapes text, renders frames, and processes live touch and scroll input (`FlutterEngineSendPointerEvent` -> `setState` -> Frames 2 and 3) with real Mach resident memory measured (~146 MB in debug mode, ±2 MB fluctuation).
 
-**Latest result:** 34 of 34 checks passed (commit `8772c78`, macOS 26.7, Xcode 26.6, watchOS 26.5 Simulator, Flutter 3.47, Dart 3.13).
+**Latest result:** 34 of 34 checks passed (macOS 26.7, Xcode 26.6, watchOS 26.5 Simulator, Flutter 3.47 / Dart 3.13.7 for dev-loop jobs, Dart 3.14.0 for engine runner).
 
 ## Primary architecture (Path A — engine rasterizes)
 
@@ -164,6 +165,7 @@ hosted runner (step Q0 prints what the runner actually offers), so this job asks
 | Q4 | **Experiment:** retag the official desktop embedder library as a watchOS Simulator binary, stub the libraries watchOS lacks, and see whether a watchOS process can load it and find the embedder API | `scripts/q4_retarget_load.sh`, `scripts/make_stubs.py`, `engine_probe/engine_dlopen.c` |
 | Q5 | **Experiment:** run Flutter inside a watchOS process through `embedder.h` with the software renderer, using a host written from scratch, and check the rendered pixels (Dart ran, text rendered, a second region painted) | `scripts/q5_run_engine.sh`, `engine_probe/engine_host.c`, `scripts/frame_check.py` |
 | Q6 | **Experiment:** interactive loop inside a watchOS process: tap injected via `FlutterEngineSendPointerEvent`, Dart `setState` executed, Frame 2 rendered and verified; memory footprint logged | `scripts/q6_interactive_engine.sh`, `engine_probe/engine_host.c`, `scripts/frame_check.py` |
+| Q7 | **Experiment:** Crown scroll input (signal_kind=scroll -> setState -> frame 3) + low memory hook | `scripts/q7_crown_engine.sh`, `engine_probe/engine_host.c`, `scripts/frame_check.py` |
 
 The frames the engine rendered are uploaded as the `engine-frame` (Frame 1) and `engine-interactive-frame` (Frame 2) artifacts.
 

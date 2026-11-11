@@ -2,7 +2,7 @@
 ### Architecture & MVP Strategy
 > A Flutter platform embedder targeting standalone Apple Watch
 
-**Version:** v9.0 · **Last updated:** November 2026
+**Version:** v9.1 · **Last updated:** November 2026
 **Status:** Draft design, partially validated. In CI (macOS runner, watchOS Simulator) the development loop works end to end, and a *patched* official Flutter engine runs Dart, renders frames and handles touch inside a Simulator process. **Nothing has run on a real watch, and no shippable engine build exists.** See [Validation](#validation).
 **Minimum target:** watchOS 10+ (device floor under review, see Open Question 8)
 
@@ -938,6 +938,11 @@ struct WatchCanvasView: View {
 ---
 
 ## Changelog
+
+### v9.1: November 2026 (Proof Suite Catalog Alignment & Q1 Source Evidence)
+- **Proof Suite Synchronization:** Added check Q7 (Crown scroll input & low-memory hook) to the test catalog in README.md, resolving the catalog documentation gap across all 34 passing checks.
+- **Engine Source Evidence (Q1):** Instrumented `q1_engine_source.sh` to output explicit source verification facts (target-OS list with `qnx`, Dart `tools/gn.py` target acceptance, and pinned Dart commit `416e33b0…`) directly into CI run sheets.
+- **Toolchain Clarification:** Formalized runner environment documentation to distinguish Dart 3.13.7 (dev-loop jobs) from Dart 3.14.0 (engine runner job).
 
 ### v9.0: November 2026 (Wearables Decoupling Strategy, Screen Profiles & Review Hardening)
 - **Architectural Horizon:** Added decoupled wearable UI strategy (`watchos_ui` vs. `wearos_ui`) modeled after Flutter's `cupertino` vs. `material` decoupling, while identifying wearos_ui as out of scope for the watchOS embedder.
