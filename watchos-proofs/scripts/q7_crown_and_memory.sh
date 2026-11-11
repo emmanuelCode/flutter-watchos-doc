@@ -7,17 +7,26 @@ SIM_UDID="${WATCH_UDID:-$(cat /tmp/watch_sim_udid 2>/dev/null || cat /tmp/watch_
 
 echo "Q7: using simulator $SIM_UDID"
 
-# Automatically find where embedder.h was placed by Q2
-INC_FLAGS=("-I" "$ROOT/engine_probe")
-while IFS= read -r dir; do
-  [ -n "$dir" ] && INC_FLAGS+=("-I" "$dir")
-done < <(find /tmp "$ROOT" -name "embedder.h" -exec dirname {} \; 2>/dev/null | sort -u)
+# 1. Borrow include flags from Q5
+Q5_INCS=$(grep -oE '\-I[[:space:]]*[^[:space:]]+' "$ROOT/scripts/q5_run_engine.sh" 2>/dev/null || true)
 
-echo "Q7: using include directories: ${INC_FLAGS[*]}"
+# 2. Search Flutter SDK cache, /tmp, $ROOT, and $HOME (following symlinks)
+FLUTTER_SDK="$(dirname "$(dirname "$(which flutter 2>/dev/null || echo /dev/null)")")"
+SEARCH_DIRS=("/tmp" "$ROOT")
+[ -d "$FLUTTER_SDK" ] && SEARCH_DIRS+=("$FLUTTER_SDK")
+[ -d "$HOME" ] && SEARCH_DIRS+=("$HOME")
+
+FOUND_INCS=()
+while IFS= read -r dir; do
+  [ -n "$dir" ] && FOUND_INCS+=("-I" "$dir")
+done < <(find -L "${SEARCH_DIRS[@]}" -name "embedder.h" -exec dirname {} \; 2>/dev/null | sort -u)
+
+ALL_INCS=("-I" "$ROOT/engine_probe" $Q5_INCS "${FOUND_INCS[@]}")
+echo "Q7: using include directories: ${ALL_INCS[*]}"
 
 xcrun --sdk watchsimulator clang -arch arm64 -mwatchos-simulator-version-min=10.0 \
   -isysroot "$WATCH_SDK" \
-  "${INC_FLAGS[@]}" \
+  "${ALL_INCS[@]}" \
   "$ROOT/engine_probe/engine_host.c" \
   -o /tmp/engine/engine_host_q7 \
   -framework CoreFoundation
