@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """Q5 / Q6 / Q7: reads the frame file written by engine_host and checks the probe app's stripes."""
 import struct, sys
-from PIL import Image
+
+try:
+    from PIL import Image
+except ImportError:
+    Image = None
 
 path, png = sys.argv[1], sys.argv[2]
 is_frame2 = "--frame2" in sys.argv
@@ -11,18 +15,28 @@ prefix = "Q7" if is_frame3 else ("Q6" if is_frame2 else "Q5")
 raw = open(path, "rb").read()
 w, h, row = struct.unpack("<III", raw[:12])
 
-def decode(order):
-    return Image.frombuffer("RGBA", (w, h), raw[12:], "raw", order, row, 1).convert("RGB")
-
 def near(got, want, tol=40):
     return all(abs(g - x) <= tol for g, x in zip(got, want))
 
-def run_checks(im):
-    s1 = im.getpixel((w // 2, int(h * 0.17)))
-    s3 = im.getpixel((w // 2, int(h * 0.83)))
+def get_pixel(x, y, order):
+    offset = 12 + y * row + x * 4
+    if offset + 3 <= len(raw):
+        if order == "RGBA":
+            return (raw[offset], raw[offset+1], raw[offset+2])
+        else: # BGRA
+            return (raw[offset+2], raw[offset+1], raw[offset])
+    return (0, 0, 0)
+
+def run_checks(order):
+    s1 = get_pixel(w // 2, int(h * 0.17), order)
+    s3 = get_pixel(w // 2, int(h * 0.83), order)
     y0, y1 = int(h * 0.36), int(h * 0.64)
-    bright = sum(1 for y in range(y0, y1) for x in range(w // 4, 3 * w // 4) if sum(im.getpixel((x, y))) > 600)
-    corner = im.getpixel((2, int(h * 0.5)))
+    bright = 0
+    for y in range(y0, y1):
+        for x in range(w // 4, 3 * w // 4):
+            if sum(get_pixel(x, y, order)) > 600:
+                bright += 1
+    corner = get_pixel(2, int(h * 0.5), order)
     if is_frame3:
         return [
             ("stripe 1 magenta: Crown scroll injected & setState executed", near(s1, (255, 0, 255)), s1),
@@ -45,11 +59,19 @@ def run_checks(im):
             ("stripe 3 blue: a second region painted", near(s3, (0, 0, 255)), s3),
         ]
 
-results = {order: run_checks(decode(order)) for order in ("RGBA", "BGRA")}
+results = {order: run_checks(order) for order in ("RGBA", "BGRA")}
 passing = [o for o, cs in results.items() if all(p for _, p, _ in cs)]
 chosen = passing[0] if len(passing) == 1 else "RGBA"
-decode(chosen).save(png)
-print(f"{prefix}: frame is {w}x{h}, saved as PNG ({png})")
+
+if Image is not None:
+    try:
+        Image.frombuffer("RGBA", (w, h), raw[12:], "raw", chosen, row, 1).convert("RGB").save(png)
+        print(f"{prefix}: frame is {w}x{h}, saved as PNG ({png})")
+    except Exception as e:
+        print(f"{prefix}: frame is {w}x{h} (PNG save failed: {e})")
+else:
+    print(f"{prefix}: frame is {w}x{h} (pure byte parser; skipped PNG save)")
+
 ok = True
 for name, passed, detail in results[chosen]:
     ok = ok and passed

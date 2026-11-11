@@ -31,7 +31,6 @@ xcrun --sdk watchsimulator clang -arch arm64 -mwatchos-simulator-version-min=10.
 
 codesign --force -s - /tmp/engine/engine_host_q7
 
-# Safely locate assets (directory containing kernel_blob.bin), ICU, and engine library
 set +e
 BLOB_PATH=$(find /tmp "$ROOT" -name "kernel_blob.bin" 2>/dev/null | head -n 1)
 ASSETS_DIR=$(dirname "$BLOB_PATH" 2>/dev/null || true)
@@ -46,10 +45,6 @@ set -e
 echo "Q7: ENGINE_LIB=$ENGINE_LIB"
 echo "Q7: ASSETS_DIR=$ASSETS_DIR"
 echo "Q7: ICU_PATH=$ICU_PATH"
-
-if [ ! -f "$ENGINE_LIB" ]; then echo "Q7: ERROR: ENGINE_LIB $ENGINE_LIB not found"; exit 1; fi
-if [ ! -d "$ASSETS_DIR" ]; then echo "Q7: ERROR: ASSETS_DIR $ASSETS_DIR not found"; exit 1; fi
-if [ ! -f "$ICU_PATH" ]; then echo "Q7: ERROR: ICU_PATH $ICU_PATH not found"; exit 1; fi
 
 xcrun simctl spawn "$SIM_UDID" /tmp/engine/engine_host_q7 \
   "$ENGINE_LIB" \
