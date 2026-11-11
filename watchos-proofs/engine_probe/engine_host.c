@@ -21,12 +21,12 @@ static atomic_ulong g_frames = 0;
 static uint8_t* g_frame_post_tap = NULL;
 static size_t g_len_post_tap = 0, g_rows_post_tap = 0, g_rowBytes_post_tap = 0;
 static atomic_ulong g_frames_post_tap = 0;
-static atomic_bool g_tap_injected = ATOMIC_VAR_INIT(false);
+static atomic_bool g_tap_injected = false;
 
 static uint8_t* g_frame_post_crown = NULL;
 static size_t g_len_post_crown = 0, g_rows_post_crown = 0, g_rowBytes_post_crown = 0;
 static atomic_ulong g_frames_post_crown = 0;
-static atomic_bool g_crown_injected = ATOMIC_VAR_INIT(false);
+static atomic_bool g_crown_injected = false;
 
 static bool present(void* user_data, const void* allocation, size_t row_bytes, size_t height) {
   pthread_mutex_lock(&g_lock);

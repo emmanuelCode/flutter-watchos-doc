@@ -7,10 +7,8 @@ SIM_UDID="${WATCH_UDID:-$(cat /tmp/watch_sim_udid 2>/dev/null || cat /tmp/watch_
 
 echo "Q6: using simulator $SIM_UDID"
 
-# 1. Borrow include flags from Q5
+# 1. Include flags from Q5 and search for embedder.h
 Q5_INCS=$(grep -oE '\-I[[:space:]]*[^[:space:]]+' "$ROOT/scripts/q5_run_engine.sh" 2>/dev/null || true)
-
-# 2. Search Flutter SDK cache, /tmp, $ROOT, and $HOME (following symlinks)
 FLUTTER_SDK="$(dirname "$(dirname "$(which flutter 2>/dev/null || echo /dev/null)")")"
 SEARCH_DIRS=("/tmp" "$ROOT")
 [ -d "$FLUTTER_SDK" ] && SEARCH_DIRS+=("$FLUTTER_SDK")
@@ -32,11 +30,24 @@ xcrun --sdk watchsimulator clang -arch arm64 -mwatchos-simulator-version-min=10.
 
 codesign --force -s - /tmp/engine/engine_host_q6
 
-# Use the retagged, patched engine library in /tmp/engine/watchos/FlutterEmbedder
+# Dynamically locate kernel_blob.bin assets directory, icudtl.dat, and patched FlutterEmbedder
+ASSETS_DIR="$(find /tmp "$ROOT" -name "kernel_blob.bin" -exec dirname {} \; 2>/dev/null | head -n 1)"
+[ -z "$ASSETS_DIR" ] && ASSETS_DIR="/tmp/engine/flutter_assets"
+
+ICU_PATH="$(find /tmp "$ROOT" -name "icudtl.dat" 2>/dev/null | head -n 1)"
+[ -z "$ICU_PATH" ] && ICU_PATH="/tmp/engine/icudtl.dat"
+
+ENGINE_LIB="$(find /tmp "$ROOT" -name "FlutterEmbedder" 2>/dev/null | grep "/watchos/" | head -n 1)"
+[ -z "$ENGINE_LIB" ] && ENGINE_LIB="/tmp/engine/watchos/FlutterEmbedder"
+
+echo "Q6: ENGINE_LIB=$ENGINE_LIB"
+echo "Q6: ASSETS_DIR=$ASSETS_DIR"
+echo "Q6: ICU_PATH=$ICU_PATH"
+
 xcrun simctl spawn "$SIM_UDID" /tmp/engine/engine_host_q6 \
-  /tmp/engine/watchos/FlutterEmbedder \
-  /tmp/engine/flutter_assets \
-  /tmp/engine/icudtl.dat \
+  "$ENGINE_LIB" \
+  "$ASSETS_DIR" \
+  "$ICU_PATH" \
   /tmp/engine_frame.bin \
   198 242 12 \
   /tmp/engine_frame2.bin > /tmp/engine/host_q6.out 2>&1 || {
