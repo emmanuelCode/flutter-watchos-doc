@@ -2,7 +2,7 @@
 ### Architecture & MVP Strategy
 > A Flutter platform embedder targeting standalone Apple Watch
 
-**Version:** v8.1 · **Last updated:** November 2026
+**Version:** v9.0 · **Last updated:** November 2026
 **Status:** Draft design, partially validated. In CI (macOS runner, watchOS Simulator) the development loop works end to end, and a *patched* official Flutter engine runs Dart, renders frames and handles touch inside a Simulator process. **Nothing has run on a real watch, and no shippable engine build exists.** See [Validation](#validation).
 **Minimum target:** watchOS 10+ (device floor under review, see Open Question 8)
 
@@ -20,6 +20,47 @@ Let Flutter developers write widgets in Dart, exactly as they do today, and run 
 Rather than forcing Material/Cupertino onto a 40 mm screen, a bespoke `watchos_ui` package encodes Apple's Human Interface Guidelines (HIG) by design: correct layout math, performance and native-feeling interaction from the start.
 
 The scope is comparable to `flutter_pi` (the community embedder for Raspberry Pi): a new embedder for a constrained, non-phone target.
+
+---
+
+---
+### 1.1 The Broader Horizon: Unified Wearables (watchOS & Wear OS)
+
+While this specification focuses primarily on watchOS, it is designed with a broader ecosystem goal: **establishing Flutter as the definitive cross-platform wearable engine.**
+
+Today, Flutter already runs on **Wear OS** because Wear OS is built on the standard Android runtime (AOSP). However, wearable development in Flutter remains fragmented: Wear OS apps today rely on standard mobile Android configurations that lack watch-specific design guidelines and battery-saving constraints.
+
+**watchOS is the missing link.** Because watchOS lacks UIKit, forbids JIT compilation, and aggressively terminates background tasks, solving it forces the creation of a disciplined, low-power embedder pipeline. Unlocking watchOS enables developers to target all major wearables (Apple Watch, Pixel Watch, Galaxy Watch) from a single Flutter ecosystem.
+
+#### Decoupled UI Philosophy: `watchos_ui` and `wearos_ui`
+
+Rather than forcing a single generic "wearable UI" that compromises both platforms, this architecture follows Flutter's proven decoupling pattern (`material` vs. `cupertino`):
+```text
+                  [ Flutter Widgets / dart:ui ]
+                               │
+       ┌───────────────────────┴───────────────────────┐
+       ▼                                               ▼
+ [ watchos_ui ]                                 [ wearos_ui ]
+ • Apple HIG (SF Compact)                       • Material You for Wear OS
+ • Rectangular/Squircle layouts                 • Circular layouts & curved text
+ • Digital Crown scroll physics                 • Rotating Bezel scroll physics
+ • Apple Taptic haptic detents                  • Android vibrator haptics
+ • OLED #000000 & Low-Power lints               • OLED #000000 & Ambient Mode lints
+```
+* **`watchos_ui` (Primary focus of this spec):** Encodes Apple's watchOS Human Interface Guidelines (SF Compact typography, rectangular/squircle screen math, Digital Crown scroll physics, Activity ring aesthetics).
+* **`wearos_ui` (Parallel ecosystem target):** Encodes Google's Wear OS Material guidelines (circular screen geometry, curved text along the bezel, rotary dial physics, Material You components).
+
+Both packages sit on Flutter's core `widgets` layer and enforce identical, uncompromising resource constraints: true-black OLED surfaces (`#000000`), zero-idle frame emissions, ambient-mode awareness, and strict touch-target limits.
+
+| Wearable Concept | watchOS (`watchos_ui`) | Wear OS (`wearos_ui`) | Shared Low-Power Rule |
+|---|---|---|---|
+| **Rotary Input** | Digital Crown (`.digitalCrownRotation`) | Rotating Bezel / Rotary Dial (`WearableRecyclerView`) | Crown/dial deltas drive scroll physics without continuous redraws |
+| **OLED Battery** | True Black (`#000000`) required by HIG | True Black (`#000000`) required by Wear OS guidelines | Canvas turns off OLED pixels; lint flags off-black backgrounds |
+| **Always-On Display** | `isLuminanceReduced` (SwiftUI) | `AmbientMode` (AndroidX Wear Lifecycle) | Pauses sub-second animations; system limits refresh rate |
+| **Haptic Detents** | Taptic Engine (`.click`) | System Haptic Feedback (`Vibrator`) | Discrete physical detent ticks on threshold crossings |
+| **Screen Geometries** | Rounded Rectangles (41 / 45 / 49 mm) | Pure Circles (40 / 44 mm) & Rounded Rects | Enforces platform-specific safe margins and touch targets |
+
+> **Architectural Note:** At the engine binary level, `watchos` (Darwin/Mach-O) and `android` (Linux/ELF) will always remain separate GN compilation targets. However, the **embedder principles** (frame presentation, event injection, low-memory hooks) and the **framework discipline** (strict resource constraints and decoupled platform UI) form a unified wearable strategy for Flutter.
 
 ---
 
@@ -912,6 +953,11 @@ struct WatchCanvasView: View {
 ---
 
 ## Changelog
+
+### v9.0: November 2026 (Unified Wearables Strategy & UI Decoupling)
+- **Added Section 1.1:** Defined the broader cross-platform wearable horizon (watchOS & Wear OS), establishing watchOS as the missing link to complete Flutter's wearable support.
+- **Decoupled UI Architecture:** Formalized the separation of `watchos_ui` (Apple HIG) and `wearos_ui` (Wear OS Material You) following the `cupertino` vs `material` precedent, while unifying shared low-power/OLED `#000000` constraints.
+- **Updated Version:** Bumped version from v8.1 to v9.0.
 
 ### v8.1: November 2026 (Engine scroll signal, check Q7)
 - **Added check Q7** (now 34 of 34 checks: 25 dev-loop + 9 engine, Q0–Q7 plus Q2s): a synthetic scroll signal sent to the engine reached Dart (`Listener` → `PointerScrollEvent` → `setState`) and produced a third distinct frame; `FlutterEngineNotifyLowMemoryWarning` was called without a crash. Wording corrected: this is the engine half of Crown support, not Crown hardware or SwiftUI `.digitalCrownRotation`, so mapping the Crown to scroll events remains untested.
