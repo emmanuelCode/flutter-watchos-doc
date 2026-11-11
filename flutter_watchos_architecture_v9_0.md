@@ -9,7 +9,7 @@
 ---
 
 ## Contents
-1. [Vision](#vision) · 2. [Constraints](#core-constraints) · 3. [Compliance](#compliance-principles) · 4. [Architecture decision](#architecture-decision) · 5. [`watchos_ui`](#the-watchos_ui-package) · 6. [Two modes](#two-mode-architecture) · 7. [Frame streamer](#the-frame-streamer-dart-side) · 8. [Debug interceptor](#the-debug-interceptor) · 9. [Watch renderer](#the-swiftui-renderer-watch-side) · 10. [Events & haptics](#events--haptics) · 11. [Power & lifecycle](#power--lifecycle-rules-proposed) · 12. [MVP](#mvp) · 13. [Validation](#validation) · 14. [Engine on watchOS](#engine-on-watchos-findings-and-proposed-route) · 15. [Open questions](#open-questions) · 16. [Phases](#build-phases) · 17. [Related work](#related-work) · [Appendix A](#appendix-a-display-list-research-path) · [Changelog](#changelog)
+1. [Vision](#vision) · 2. [Constraints](#core-constraints) · 3. [Compliance](#compliance-principles) · 4. [Architecture decision](#architecture-decision) · 5. [`watchos_ui`](#the-watchos_ui-package) · 6. [Two modes](#two-mode-architecture) · 7. [Frame streamer](#the-frame-streamer-dart-side) · 8. [Debug interceptor](#the-debug-interceptor) · 9. [Watch renderer](#the-swiftui-renderer-watch-side) · 10. [Events & haptics](#events--haptics) · 11. [Power & lifecycle](#power--lifecycle-rules-proposed) · 12. [MVP](#mvp) · 13. [Validation](#validation) · 14. [Engine on watchOS](#engine-on-watchos-findings-and-proposed-route) · 15. [Open questions](#open-questions) · 16. [Phases](#build-phases) · 17. [Related work](#related-work) · [Resolved decisions](#resolved-design-decisions) · [References](#references) · [Appendix A](#appendix-a-display-list-research-path) · [Changelog](#changelog)
 
 ---
 
@@ -23,18 +23,12 @@ The scope is comparable to `flutter_pi` (the community embedder for Raspberry Pi
 
 ---
 
----
-### 1.1 The Broader Horizon: Unified Wearables (watchOS & Wear OS)
+### Future Horizon: Decoupled Wearables (watchOS & Wear OS, Out of Scope)
 
-While this specification focuses primarily on watchOS, it is designed with a broader ecosystem goal: **establishing Flutter as the definitive cross-platform wearable engine.**
+While this specification focuses strictly on standalone watchOS via an embedder, its UI architectural principles are designed to align with broader wearable platforms without forcing lowest-common-denominator compromises.
 
-Today, Flutter already runs on **Wear OS** because Wear OS is built on the standard Android runtime (AOSP). However, wearable development in Flutter remains fragmented: Wear OS apps today rely on standard mobile Android configurations that lack watch-specific design guidelines and battery-saving constraints.
+Today, Flutter already executes on **Wear OS** because Wear OS is built on the standard Android runtime (AOSP). However, wearable UI and hardware interaction diverge fundamentally from phones. Rather than proposing a single compromise wearable widget library, this architecture favors Flutter's proven decoupling pattern (`material` vs. `cupertino`):
 
-**watchOS is the missing link.** Because watchOS lacks UIKit, forbids JIT compilation, and aggressively terminates background tasks, solving it forces the creation of a disciplined, low-power embedder pipeline. Unlocking watchOS enables developers to target all major wearables (Apple Watch, Pixel Watch, Galaxy Watch) from a single Flutter ecosystem.
-
-#### Decoupled UI Philosophy: `watchos_ui` and `wearos_ui`
-
-Rather than forcing a single generic "wearable UI" that compromises both platforms, this architecture follows Flutter's proven decoupling pattern (`material` vs. `cupertino`):
 ```text
                   [ Flutter Widgets / dart:ui ]
                                │
@@ -43,24 +37,14 @@ Rather than forcing a single generic "wearable UI" that compromises both platfor
  [ watchos_ui ]                                 [ wearos_ui ]
  • Apple HIG (SF Compact)                       • Material You for Wear OS
  • Rectangular/Squircle layouts                 • Circular layouts & curved text
- • Digital Crown scroll physics                 • Rotating Bezel scroll physics
- • Apple Taptic haptic detents                  • Android vibrator haptics
- • OLED #000000 & Low-Power lints               • OLED #000000 & Ambient Mode lints
+ • Digital Crown scroll physics                 • Rotary dial scroll physics
+ • Apple Taptic detents                         • Android haptic feedback
+ • OLED & Low-Power lints                       • OLED & Ambient Mode lints
 ```
-* **`watchos_ui` (Primary focus of this spec):** Encodes Apple's watchOS Human Interface Guidelines (SF Compact typography, rectangular/squircle screen math, Digital Crown scroll physics, Activity ring aesthetics).
-* **`wearos_ui` (Parallel ecosystem target):** Encodes Google's Wear OS Material guidelines (circular screen geometry, curved text along the bezel, rotary dial physics, Material You components).
+* **`watchos_ui` (Primary focus of this spec):** Encodes Apple's watchOS Human Interface Guidelines (SF Compact typography, squircle screen geometry, Digital Crown physics).
+* **`wearos_ui` (Conceptual / community target):** Encodes Google's Wear OS Material guidelines (circular layouts, curved text along the bezel, modern rotary scroll mechanics).
 
-Both packages sit on Flutter's core `widgets` layer and enforce identical, uncompromising resource constraints: true-black OLED surfaces (`#000000`), zero-idle frame emissions, ambient-mode awareness, and strict touch-target limits.
-
-| Wearable Concept | watchOS (`watchos_ui`) | Wear OS (`wearos_ui`) | Shared Low-Power Rule |
-|---|---|---|---|
-| **Rotary Input** | Digital Crown (`.digitalCrownRotation`) | Rotating Bezel / Rotary Dial (`WearableRecyclerView`) | Crown/dial deltas drive scroll physics without continuous redraws |
-| **OLED Battery** | True Black (`#000000`) required by HIG | True Black (`#000000`) required by Wear OS guidelines | Canvas turns off OLED pixels; lint flags off-black backgrounds |
-| **Always-On Display** | `isLuminanceReduced` (SwiftUI) | `AmbientMode` (AndroidX Wear Lifecycle) | Pauses sub-second animations; system limits refresh rate |
-| **Haptic Detents** | Taptic Engine (`.click`) | System Haptic Feedback (`Vibrator`) | Discrete physical detent ticks on threshold crossings |
-| **Screen Geometries** | Rounded Rectangles (41 / 45 / 49 mm) | Pure Circles (40 / 44 mm) & Rounded Rects | Enforces platform-specific safe margins and touch targets |
-
-> **Architectural Note:** At the engine binary level, `watchos` (Darwin/Mach-O) and `android` (Linux/ELF) will always remain separate GN compilation targets. However, the **embedder principles** (frame presentation, event injection, low-memory hooks) and the **framework discipline** (strict resource constraints and decoupled platform UI) form a unified wearable strategy for Flutter.
+Both layers sit on Flutter's core `widgets` layer and share common wearable disciplines: prioritizing true-black or high-contrast dark surfaces for OLED efficiency, pausing animation ticks when idle, and handling ambient display transitions. Platform hardware variations (HealthKit vs. Android Health Services, audio session routing) remain within the domain of standard federated plugins rather than the embedder.
 
 ---
 
@@ -70,18 +54,19 @@ Both packages sit on Flutter's core `widgets` layer and enforce identical, uncom
 |---|---|
 | No Metal directly | `MTKView` is unavailable and the watchOS SDK does not export `MTLCreateSystemDefaultDevice` (check Q3), so GPU access is normally indirect (SwiftUI Canvas / SpriteKit). flutter-watchos reports reaching Metal through an SDK overlay; this design does not use that route (Open Question 12) |
 | No UIKit | WatchKit + SwiftUI only |
-| Memory | ~30 MB is a conservative working target. It varies by watch generation; validate per device with Instruments |
+| Memory | ~30 MB is an unverified working target. Engine + Dart runtime overhead may exceed it; primary production feasibility risk to validate per device |
+| Skia CPU deprecation | Path A relies on Flutter's software rasterizer. Impeller is replacing Skia across Flutter and, to our knowledge as of late 2026, provides no software/CPU backend; if Skia is deprecated upstream, Path A requires a dedicated CPU backend for Impeller or a viable GPU route (Open Question 12) |
 | No JIT on device | On-device Dart must be AOT-compiled, so there is no on-device hot reload. AOT output still carries a Dart runtime (GC etc.) |
-| No dynamic code | Apple prohibits downloading and executing code at runtime (App Review Guideline 2.5.2) |
+| No dynamic code | Apple restricts downloading and executing executable code at runtime (App Review Guideline 2.5.2, subject to narrow exceptions) |
 | Background limits | The OS suspends background work aggressively; a WebSocket listener must stay in a foreground session |
-| Screen sizes | 41 mm → 176×215 pt · 45 mm → 198×242 pt · 49 mm Ultra → 205×251 pt |
+| Screen sizes | 41 mm → 176×215 pt · 42 mm → 187×223 pt · 45 mm → 198×242 pt · 46 mm → 208×248 pt · 49 mm Ultra → 205×251 pt (CI Simulator device is 46 mm; current checks run at 45 mm; 42/46 mm specs per Apple Series 10 HIG) |
 | Pointer width (unverified) | Older watches are believed to use the `arm64_32` (ILP32) ABI. Verify Dart AOT / engine support before fixing the device floor |
 
 ---
 
 ## Compliance Principles
 
-This document is a design, not a compliance review. It is built around Apple-supported mechanisms: public APIs only, pixels presented through SwiftUI, AOT builds with no downloaded code (see App Review Guidelines 2.5.1 and 2.5.2), and an engine build from official Flutter sources. Stubbed or patched binaries, such as those in checks Q4–Q6, are research artifacts and never ship, and the Metal-overlay route reported for flutter-watchos is not used (Open Question 12). Whoever implements this, or the Flutter team, should verify these points against Apple's current guidelines and, where unclear, ask Apple before relying on them.
+This document is a design, not a compliance review. It is built around Apple-supported mechanisms: public APIs only, pixels presented through SwiftUI, AOT builds with no downloaded code (see App Review Guidelines 2.5.1 and 2.5.2), and an engine build from official Flutter sources plus an open, published patch set. Stubbed or patched binaries, such as those in checks Q4–Q6, are research artifacts and never ship, and the Metal-overlay route reported for flutter-watchos is not used (Open Question 12). Whoever implements this, or the Flutter team, should verify these points against Apple's current guidelines and, where unclear, ask Apple before relying on them.
 
 ---
 
@@ -303,7 +288,7 @@ Because Flutter rasterizes its own text in this mode, there is no Dart-vs-Core-T
 
 Sits between the frame source and the WebSocket sender. Validates each frame against a `WatchConstraintProfile` by inspecting the **render tree** (sizes, touch targets, font sizes). Critical violations block transmission.
 
-**Profile fields:** `screenWidth`, `screenHeight`, `maxPayloadBytes`, `minTouchTarget` (44 pt), `minFontSize` (14 pt), `maxFontSize` (34 pt), `crownExclusionZone`, with presets for 41, 45 and 49 mm. (`maxDrawCallsPerFrame` applies only to Appendix A; under Path A use render-object count, layer count and capture time.) Numeric limits are provisional until checked against the HIG.
+**Profile fields:** `screenWidth`, `screenHeight`, `maxPayloadBytes`, `minTouchTarget` (44 pt), `minFontSize` (14 pt), `maxFontSize` (34 pt), `crownExclusionZone`, with presets for all five display sizes (41, 42, 45, 46 and 49 mm). (`maxDrawCallsPerFrame` applies only to Appendix A; under Path A use render-object count, layer count and capture time.) Numeric limits are provisional until checked against the HIG.
 
 | Category | Violation | Severity | Meaning |
 |---|---|---|---|
@@ -425,7 +410,7 @@ Steps 1–6 can be CI-verified in the Simulator (host 1a). Step 7 on a real watc
 
 Checks run in CI on GitHub-hosted macOS runners with the watchOS Simulator, with no owned hardware needed (free for public repositories at the time of writing; verify current terms). The runnable proofs live in `watchos-proofs/`, and the code blocks in this document are extracted and tested automatically. **A code section counts as specified only once its snippet compiles in CI.**
 
-Latest run: macOS runner, Xcode 26.6, watchOS 26.5 Simulator, Flutter 3.47, Dart 3.13. **All 34 checks pass:** 25 dev-loop checks (F0, P0–P6, P9, X1–X2, S0–S7, A1–A4, E0–E1) and 9 engine checks (Q0–Q7 plus Q2s). X1/X2 extract the spec's code, E0 is the end-to-end setup, and Q2s boots a watch simulator. Status values progress Unverified → Compiles → Tested → Measured; "Tested" means tested in the Simulator, not on a watch.
+Latest run: macOS runner, Xcode 26.6, watchOS 26.5 Simulator, Flutter 3.47 / Dart 3.13.7 (dev-loop jobs), Dart 3.14.0 (engine runner job). **All 34 checks pass:** 25 dev-loop checks (F0, P0–P6, P9, X1–X2, S0–S7, A1–A4, E0–E1) and 9 engine checks (Q0–Q7 plus Q2s). X1/X2 extract the spec's code, E0 is the end-to-end setup, and Q2s boots a watch simulator. Status values progress Unverified → Compiles → Tested → Measured; "Tested" means tested in the Simulator, not on a watch.
 
 ### Spikes
 
@@ -463,7 +448,7 @@ Latest run: macOS runner, Xcode 26.6, watchOS 26.5 Simulator, Flutter 3.47, Dart
 | P2 | Headless capture works: `RepaintBoundary.toImage` → raw RGBA, byte counts exactly as computed |
 | P3, S1 | A tap injected via `GestureBinding` reaches a `GestureDetector` and changes the next frame |
 | P4, P5 | RGBA → `CGImage` → SwiftUI `Canvas` draws the right pixels |
-| P6 | Dart WebSocket server → watchOS client over loopback: a 192 KB frame down, a tap up (first frame incl. handshake: 140–232 ms across runs) |
+| P6 | Dart WebSocket server → watchOS client over loopback: a 192 KB frame down, a tap up (first frame incl. handshake: 120–232 ms across runs) |
 | S0, S2–S6 | The spec's Swift compiles for watchOS; views stretch, redraw on publish, and the slab API draws Dart-written bytes |
 | S7 | An idle app produces no frames; `captureNow()` pushes exactly the current one |
 | A1–A4 | Text at `.topLeading` renders from the top-left; mailbox logic; Dart-written bytes parse in Swift; `@_cdecl` symbol found by `dlsym` |
@@ -507,9 +492,9 @@ This concerns Open Question 9 and is a starting point for anyone building a full
 | Byte order | The present callback delivered **RGBA** in this build (inferred from a checker that accepts only one consistent order). A real port must re-measure it |
 | Interactive loop | Q6: touch injected via `FlutterEngineSendPointerEvent` at (99, 121) (`kAdd` → `kDown` → `kUp`); the `GestureDetector` fired, `setState()` re-rendered text 'TAP' (1,039–1,355 bright glyph pixels, varies by run), and a distinct frame 2 was presented |
 | Scroll signal and low-memory hook | Q7: a synthetic scroll signal (`kFlutterPointerSignalKindScroll`, delta_y 40.0) sent through `FlutterEngineSendPointerEvent` reached a Dart `Listener` as a `PointerScrollEvent`, `setState()` re-rendered the text as 'CROWN' (1,650 bright glyph pixels, one run), and a third distinct frame was presented. The embedder's `FlutterEngineNotifyLowMemoryWarning` returned 0 (success). Resident memory read 146.44 MB before and 145.61 MB after the call, a difference within the roughly ±2 MB fluctuation seen between frames, so no memory effect is claimed. **This is the engine half of Crown support only: no Crown hardware and no SwiftUI `.digitalCrownRotation` were involved** |
-| Process memory | Q6/Q7: Mach resident memory read **145.6–148.1 MB** across frames and runs (for example Q6: 146.38 → 148.09 MB; Q7: 145.97 → 148.11 → 146.44 MB). It moves by up to about 2 MB between frames in either direction, so treat it as ≈ 146 MB ± 2. **This is a Mac process running a debug JIT engine with the full Dart compiler and VM service. It is not a watchOS memory measurement and says nothing about a release AOT build on a watch** |
+| Process memory | Q6/Q7: Mach resident memory read **145.6–148.3 MB** across frames and runs (for example Q6: 146.38 → 148.09 MB; Q7: 145.97 → 148.11 → 146.44 MB). It moves by up to about 2 MB between frames in either direction, so treat it as ≈ 146 MB ± 2. **This is a Mac process running a debug JIT engine with the full Dart compiler and VM service. It is not a watchOS memory measurement and says nothing about a release AOT build on a watch** |
 
-**What this does not show.** It is a normal Mac process tagged as a watchOS Simulator binary: Mac CPU and memory, and a debug engine that JIT-compiles Dart (which a real watch will not allow). The stubs are zeroed data and unused Metal/IOSurface code never ran. It proves nothing about a source build, AOT, device memory, speed or App Review, and the patched binary must never be distributed.
+**What this does not show.** It is a normal Mac process tagged as a watchOS Simulator binary: Mac CPU and memory, and a debug engine that JIT-compiles Dart (which a real watch will not allow). The stubs are zeroed data and unused Metal code never ran. It proves nothing about a source build, AOT, device memory, speed or App Review, and the patched binary must never be distributed.
 
 **Facts from the engine source (pinned commit `89c39edf…`, Dart `416e33b0…`):**
 - The build tool's target OS list is `android, ios, mac, linux, fuchsia, wasm, win, qnx`: no watchOS, and `--simulator` is iOS-only.
@@ -545,14 +530,14 @@ This concerns Open Question 9 and is a starting point for anyone building a full
 9. **Engine on watchOS.** *Shown here:* patched official debug engine code runs in a Simulator process. *Third-party evidence (unverified by us):* flutter-watchos reports the engine running on the watch with App Store apps (see Related Work). *Open:* an open-source recipe, whether the Dart VM builds and runs on watchOS, AOT on a device, binary size, memory, and App Review acceptance.
 10. **Simulator networking / CI.** *Answered (P1, P6): yes.* The Simulator reaches host loopback and hosted runners ship a watchOS runtime.
 11. **Frame-transport budget.** Which mix of pixel ratio, diffs, zlib and capture-rate cap fits 30 fps, over loopback and then real Wi-Fi? *Partly answered (P9):* zlib gives ≈ 1 KB / 3.9 KB per mostly-static frame. Open: busy content, real Wi-Fi, decode time on a watch.
-12. **GPU rendering and API compliance.** flutter-watchos reports Impeller on Metal through an SDK overlay that supplies a Metal framework the watchOS SDK does not declare. Whether Apple accepts that is unknown here, so this design stays on the public-API software path. Open: a public route to GPU rasterization, and the CPU-raster frame-time and battery cost on real devices.
+12. **GPU rendering, CPU rasterization and API compliance.** flutter-watchos reports Impeller on Metal through an SDK overlay that supplies a Metal framework the watchOS SDK does not declare. Whether Apple accepts that is unknown here, so this design stays on the public-API software path. Open: whether a public route to GPU rasterization exists, the feasibility of an Impeller CPU backend if Skia is phased out, and the frame-time and battery cost of CPU rasterization on real devices.
 
 ---
 
 ## Build Phases
 
 **Phase 0: `watchos_ui` specification**
-- [ ] Full widget catalog and `WatchConstraintProfile` for all three screen sizes
+- [ ] Full widget catalog and `WatchConstraintProfile` for all five screen sizes (41, 42, 45, 46, 49 mm)
 - [ ] Verify HIG numbers against the current HIG and cite sources
 - [ ] Decide the device floor (Open Question 8)
 - [ ] Navigation model and Digital Crown scroll-physics contract
@@ -954,10 +939,13 @@ struct WatchCanvasView: View {
 
 ## Changelog
 
-### v9.0: November 2026 (Unified Wearables Strategy & UI Decoupling)
-- **Added Section 1.1:** Defined the broader cross-platform wearable horizon (watchOS & Wear OS), establishing watchOS as the missing link to complete Flutter's wearable support.
-- **Decoupled UI Architecture:** Formalized the separation of `watchos_ui` (Apple HIG) and `wearos_ui` (Wear OS Material You) following the `cupertino` vs `material` precedent, while unifying shared low-power/OLED `#000000` constraints.
-- **Updated Version:** Bumped version from v8.1 to v9.0.
+### v9.0: November 2026 (Wearables Decoupling Strategy, Screen Profiles & Review Hardening)
+- **Architectural Horizon:** Added decoupled wearable UI strategy (`watchos_ui` vs. `wearos_ui`) modeled after Flutter's `cupertino` vs. `material` decoupling, while identifying wearos_ui as out of scope for the watchOS embedder.
+- **Refreshed Validation Numbers:** Widened process memory range to 145.6–148.3 MB (accounting for Q7 frame 2 reading 148.27 MB), updated P6 first-frame latency range to 120–232 ms, and documented toolchain differences across jobs (Dart 3.13.7 for dev-loop vs. Dart 3.14.0 for engine checks).
+- **Modern Screen Profiles:** Added Apple Watch Series 10/11 display dimensions (42 mm 187×223 pt, 46 mm 208×248 pt) and noted test-profile resolution gap against the 46 mm CI runner.
+- **Risk Assessment:** Added Skia CPU deprecation and Impeller's lack of a software rasterizer as a primary risk for Path A.
+- **Compliance & Terminology:** Clarified engine provenance ("official Flutter sources plus an open patch set"), removed desktop IOSurface reference, and added missing sections to Table of Contents.
+- **Consistency & Hedging:** Updated screen profile references to all five sizes (41/42/45/46/49 mm per Apple HIG), clarified CI device wording, hedged Impeller CPU status ("as of late 2026"), expanded Open Question 12, and corrected markdown fence spacing.
 
 ### v8.1: November 2026 (Engine scroll signal, check Q7)
 - **Added check Q7** (now 34 of 34 checks: 25 dev-loop + 9 engine, Q0–Q7 plus Q2s): a synthetic scroll signal sent to the engine reached Dart (`Listener` → `PointerScrollEvent` → `setState`) and produced a third distinct frame; `FlutterEngineNotifyLowMemoryWarning` was called without a crash. Wording corrected: this is the engine half of Crown support, not Crown hardware or SwiftUI `.digitalCrownRotation`, so mapping the Crown to scroll events remains untested.
@@ -973,7 +961,7 @@ struct WatchCanvasView: View {
 - Removed LaTeX markup (`$\to$`).
 - **Compliance:** added a short Compliance Principles section (a design-scope statement, not a compliance review). The Metal-overlay route reported for flutter-watchos is recorded as an unassessed risk (Open Question 12) and not adopted; a public-API audit was added to Phase 3.
 - **Related Work:** rewritten from flutterwatch.dev, the August 2026 article and the pub.dev pages. The site confirms App Store apps, so that claim stands (sourced to the site); status updated from "closed beta" to the site's current public sign-in model. Added its reported Impeller-on-Metal route (consistent with check Q3: the SDK lacks `MTLCreateSystemDefaultDevice`) as new Open Question 12 and a note in Constraints and Mode 2.
-- **Numbers refreshed from the latest CI sheet:** memory is shown as a range across runs (145.6–148.1 MB, fluctuating ±2 MB; the Q7 low-memory call is logged), P6 first-frame time 140–232 ms, bright-glyph counts shown as per-run ranges, and P9 raw/1.0 encode time 0.5–1.9 ms (the previous upper bound, 1.2, was exceeded).
+- **Numbers refreshed from the latest CI sheet:** memory is shown as a range across runs (145.6–148.3 MB, fluctuating ±2 MB; the Q7 low-memory call is logged), P6 first-frame time 120–232 ms, bright-glyph counts shown as per-run ranges, and P9 raw/1.0 encode time 0.5–1.9 ms (the previous upper bound, 1.2, was exceeded).
 
 **Condensation (~1,670 → ~930 lines, about 250 of them verbatim tested code)**
 - Removed the protobuf `DisplayList` schema, the untested `WatchCanvas` interceptor (A.4) and display-list renderer (A.5), the FFI bridge example and the swiftgen history, all untested or superseded research. Removed the Antigravity agent-strategy and tooling-stack sections and the "present the MVP" marketing steps (author workflow, not architecture).
