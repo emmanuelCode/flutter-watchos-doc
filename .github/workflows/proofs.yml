@@ -3,7 +3,7 @@ name: watchos-proofs
 on: [push, pull_request, workflow_dispatch]
 
 env:
-  SPEC_FILE: flutter_watchos_architecture_v8_0.md
+  SPEC_FILE: flutter_watchos_architecture_v8_1.md
 
 jobs:
   flutter-side:

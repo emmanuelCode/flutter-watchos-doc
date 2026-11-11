@@ -20,7 +20,7 @@ artifacts, but only when something fails.
 
 ## Test catalog — what each check tests, why, and what a pass means
 
-**33 checks in four jobs**, all run on a macOS GitHub runner with the watchOS Simulator. IDs are not contiguous (there is no P7 or P8 — they were planned and dropped).
+**34 checks in four jobs**, all run on a macOS GitHub runner with the watchOS Simulator. IDs are not contiguous (there is no P7 or P8 — they were planned and dropped).
 
 **Honest labeling.** "Tested" always means *tested in the watchOS Simulator on a macOS runner*, never on a physical watch. The Simulator runs as an ordinary process on the Mac, so it uses the Mac's CPU and memory.
 
@@ -89,7 +89,7 @@ Built only from official Flutter artifacts, Apple's SDK and `embedder.h` — no 
 
 - **Interactive Flutter engine loop on watchOS (Q0–Q6):** the official engine starts, executes Dart, shapes text, renders frames, and processes live touch input (`FlutterEngineSendPointerEvent` -> `setState` -> Frame 2) with real Mach resident memory measured (~146 MB in debug mode, 390 KB frame delta).
 
-**Latest result:** 33 of 33 checks passed (commit `8772c78`, macOS 26.7, Xcode 26.6, watchOS 26.5 Simulator, Flutter 3.47, Dart 3.13).
+**Latest result:** 34 of 34 checks passed (commit `8772c78`, macOS 26.7, Xcode 26.6, watchOS 26.5 Simulator, Flutter 3.47, Dart 3.13).
 
 ## Primary architecture (Path A — engine rasterizes)
 

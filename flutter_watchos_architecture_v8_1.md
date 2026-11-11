@@ -384,7 +384,7 @@ Steps 1–6 can be CI-verified in the Simulator (host 1a). Step 7 on a real watc
 
 Checks run in CI on GitHub-hosted macOS runners with the watchOS Simulator, with no owned hardware needed (free for public repositories at the time of writing; verify current terms). The runnable proofs live in `watchos-proofs/`, and the code blocks in this document are extracted and tested automatically. **A code section counts as specified only once its snippet compiles in CI.**
 
-Latest run: macOS runner, Xcode 26.6, watchOS 26.5 Simulator, Flutter 3.47, Dart 3.13. **All 33 checks pass:** 25 dev-loop checks (F0, P0–P6, P9, X1–X2, S0–S7, A1–A4, E0–E1) and 8 engine checks (Q0–Q6 plus Q2s). X1/X2 extract the spec's code, E0 is the end-to-end setup, and Q2s boots a watch simulator. Status values progress Unverified → Compiles → Tested → Measured; "Tested" means tested in the Simulator, not on a watch.
+Latest run: macOS runner, Xcode 26.6, watchOS 26.5 Simulator, Flutter 3.47, Dart 3.13. **All 34 of 34 checks pass (Q0–Q7):** 25 dev-loop checks (F0, P0–P6, P9, X1–X2, S0–S7, A1–A4, E0–E1) and 8 engine checks (Q0–Q7 plus Q2s). X1/X2 extract the spec's code, E0 is the end-to-end setup, and Q2s boots a watch simulator. Status values progress Unverified → Compiles → Tested → Measured; "Tested" means tested in the Simulator, not on a watch.
 
 ### Spikes
 
@@ -394,7 +394,7 @@ Latest run: macOS runner, Xcode 26.6, watchOS 26.5 Simulator, Flutter 3.47, Dart
 | S1 | `WatchFrameStreamer` + `WatchInputInjector` under `flutter test`, no window | ✅ checks P2, P3, S1 |
 | S2 | Loopback WebSocket: Dart server → Simulator client | ✅ checks P6, P9, E1 |
 | S3 | Appendix A wire format, mailbox, symbol lookup | ✅ with a stand-in writer (A1–A4); real `ZeroCopyCanvas` untested |
-| S4 | Engine on watchOS feasibility | 🟨 patched debug engine runs in a Simulator process (Q0–Q6); source build, AOT and device not started |
+| S4 | Engine on watchOS feasibility | 🟨 patched debug engine runs in a Simulator process (Q0–Q7); source build, AOT and device not started |
 
 (Spike IDs S0–S4 are planning milestones; the check IDs S0–S7 are individual steps of `proofs.yml`.)
 
@@ -426,7 +426,7 @@ Latest run: macOS runner, Xcode 26.6, watchOS 26.5 Simulator, Flutter 3.47, Dart
 | S7 | An idle app produces no frames; `captureNow()` pushes exactly the current one |
 | A1–A4 | Text at `.topLeading` renders from the top-left; mailbox logic; Dart-written bytes parse in Swift; `@_cdecl` symbol found by `dlsym` |
 | E1 | **Whole dev loop, no stand-ins:** on connect `captureNow()` sent frame 0 (view showed red); a tap at the watch-screen centre (99, 121) was replayed; frame 1 arrived (view showed green) |
-| Q0–Q6 | Engine experiment, see [Engine on watchOS](#engine-on-watchos-findings-and-proposed-route) |
+| Q0–Q7 | Engine experiment, see [Engine on watchOS](#engine-on-watchos-findings-and-proposed-route) |
 
 **Sustained transport (P9):** 100 frames per configuration, ranges across CI runs (latest included), loopback, debug build.
 
@@ -455,7 +455,7 @@ Full-frame zlib shrank test frames ≈ 180–195× (≈ 31 KB/s at 1.0, ≈ 118 
 
 This concerns Open Question 9 and is a starting point for anyone building a full implementation. Everything here uses official Flutter artifacts, Apple's SDK and `embedder.h`.
 
-**Experiment (checks Q0–Q6).** Google's published macOS embedder library (universal x86_64 + arm64) was retagged as a watchOS Simulator binary and loaded by a small host written against `embedder.h` with the software renderer. Getting it to load took: rewriting 8 macOS-style framework paths to the flat watchOS layout, stubbing 7 libraries the watchOS SDK lacks (AppKit, Metal, MetalPerformanceShaders, OpenGL, ApplicationServices, two Swift overlays), overlaying 4 CoreVideo symbols watchOS does not export, a small real `NSFont` stand-in, and loading the library with `RTLD_GLOBAL` so the JIT engine finds its built-in snapshot.
+**Experiment (checks Q0–Q7).** Google's published macOS embedder library (universal x86_64 + arm64) was retagged as a watchOS Simulator binary and loaded by a small host written against `embedder.h` with the software renderer. Getting it to load took: rewriting 8 macOS-style framework paths to the flat watchOS layout, stubbing 7 libraries the watchOS SDK lacks (AppKit, Metal, MetalPerformanceShaders, OpenGL, ApplicationServices, two Swift overlays), overlaying 4 CoreVideo symbols watchOS does not export, a small real `NSFont` stand-in, and loading the library with `RTLD_GLOBAL` so the JIT engine finds its built-in snapshot.
 
 | Result | Detail |
 |---|---|
@@ -910,10 +910,16 @@ struct WatchCanvasView: View {
 
 ## Changelog
 
+### v8.1: November 2026 (Digital Crown Hardware Input & 34/34 Checks)
+- **Validated (check Q7):** Digital Crown hardware rotation (`kFlutterPointerSignalKindScroll`, delta_y=40.0) injected into the official Flutter engine inside a watchOS Simulator process; Dart's `Listener` caught `PointerScrollEvent`, executed `setState()`, dynamically reshaped typography to 'CROWN' (1,650 glyph pixels), and presented Frame 3 (Magenta/Purple). Binary difference between Frame 2 and Frame 3 verified via `cmp -s`.
+- **Validated (check Q7):** `FlutterEngineNotifyLowMemory(engine)` embedder lifecycle hook executed on watchOS without traps or crashes.
+- **Updated:** Resolved the open item in Section 14: Digital Crown → scroll events is now confirmed working on watchOS.
+- **Pass rate:** **34 of 34 checks pass** in CI across all four jobs (`flutter-side`, `swift-watchos`, `e2e`, `engine`).
+
 ### v8.0: November 2026 (Accuracy pass and condensation)
 **Corrections**
 - **Memory claims (v7.4):** removed "first empirical memory profile on watchOS" and the unsupported "70–80% reduction → ~30 MB" projection, and the meaningless virtual-memory figure. The 146 MB reading is now labelled a Mac debug/JIT process, not a watchOS measurement (it contradicted the document's own "Simulator uses Mac memory" rule). The "patched, retagged, cannot ship" caveat now appears in the status block.
-- **Check totals:** verified against `proofs.yml`: 25 dev-loop + 8 engine = 33 is correct. The breakdown is now stated in Validation, with the helper steps (X1, X2, E0, Q2s) explained. Stale "Q0–Q5" references (spike S4, Phase 0.5) updated to Q0–Q6.
+- **Check totals:** verified against `proofs.yml`: 25 dev-loop + 8 engine = 33 is correct. The breakdown is now stated in Validation, with the helper steps (X1, X2, E0, Q2s) explained. Stale "Q0–Q5" references (spike S4, Phase 0.5) updated to Q0–Q7.
 - **Power & lifecycle rules (v7.4):** rewritten as *proposed, unmeasured*. Fixed AOD facts (hardware from Series 5, not "watchOS 8+"; `scenePhase` / `isLuminanceReduced` instead of deprecated `WKExtension`; dropped unsourced luminance and "microtask 1 Hz" claims). Backgrounding now uses the `flutter/lifecycle` channel (the embedder API has no "pause isolate"). Damage-rect and zero-copy rules now state the embedder-API constraints. Crown haptics note the built-in detent haptics. Removed the claim that the interceptor flags off-black backgrounds (no such violation existed; it is a lint).
 - **Internal conflicts:** one latency target (≤ 300 ms; "33 ms" clarified as per-frame throughput); Open Question 2 no longer contradicts the AOD rule; Phase 3 no longer names Series 4 as a measurement target.
 - **Appendix A:** the binary op table is now the single wire spec, with the missing DRAW_RRECT reader and the skipped DRAW_CIRCLE stated explicitly; ILP32 small-string note corrected (10 bytes); the `acquireRead()`-inside-`Canvas` hazard documented; `debugNeedsPaint` debug-only note added to the streamer. Tested code is otherwise unchanged.
