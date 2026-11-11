@@ -13,10 +13,12 @@ SEARCH_DIRS=("/tmp" "$ROOT")
 [ -d "$FLUTTER_SDK" ] && SEARCH_DIRS+=("$FLUTTER_SDK")
 [ -d "$HOME" ] && SEARCH_DIRS+=("$HOME")
 
+set +e
 FOUND_INCS=()
 while IFS= read -r dir; do
   [ -n "$dir" ] && FOUND_INCS+=("-I" "$dir")
 done < <(find -L "${SEARCH_DIRS[@]}" -name "embedder.h" -exec dirname {} \; 2>/dev/null | sort -u)
+set -e
 
 ALL_INCS=("-I" "$ROOT/engine_probe" $Q5_INCS "${FOUND_INCS[@]}")
 
@@ -29,19 +31,25 @@ xcrun --sdk watchsimulator clang -arch arm64 -mwatchos-simulator-version-min=10.
 
 codesign --force -s - /tmp/engine/engine_host_q7
 
-# Dynamically locate kernel_blob.bin assets directory, icudtl.dat, and patched FlutterEmbedder
-ASSETS_DIR="$(find /tmp "$ROOT" -name "kernel_blob.bin" -exec dirname {} \; 2>/dev/null | head -n 1)"
+# Safely locate assets (directory containing kernel_blob.bin), ICU, and engine library
+set +e
+BLOB_PATH=$(find /tmp "$ROOT" -name "kernel_blob.bin" 2>/dev/null | head -n 1)
+ASSETS_DIR=$(dirname "$BLOB_PATH" 2>/dev/null || true)
+ICU_PATH=$(find /tmp "$ROOT" -name "icudtl.dat" 2>/dev/null | head -n 1)
+ENGINE_LIB=$(find /tmp/engine/watchos -name "FlutterEmbedder" 2>/dev/null | head -n 1)
+set -e
+
 [ -z "$ASSETS_DIR" ] && ASSETS_DIR="/tmp/engine/flutter_assets"
-
-ICU_PATH="$(find /tmp "$ROOT" -name "icudtl.dat" 2>/dev/null | head -n 1)"
 [ -z "$ICU_PATH" ] && ICU_PATH="/tmp/engine/icudtl.dat"
-
-ENGINE_LIB="$(find /tmp "$ROOT" -name "FlutterEmbedder" 2>/dev/null | grep "/watchos/" | head -n 1)"
 [ -z "$ENGINE_LIB" ] && ENGINE_LIB="/tmp/engine/watchos/FlutterEmbedder"
 
 echo "Q7: ENGINE_LIB=$ENGINE_LIB"
 echo "Q7: ASSETS_DIR=$ASSETS_DIR"
 echo "Q7: ICU_PATH=$ICU_PATH"
+
+if [ ! -f "$ENGINE_LIB" ]; then echo "Q7: ERROR: ENGINE_LIB $ENGINE_LIB not found"; exit 1; fi
+if [ ! -d "$ASSETS_DIR" ]; then echo "Q7: ERROR: ASSETS_DIR $ASSETS_DIR not found"; exit 1; fi
+if [ ! -f "$ICU_PATH" ]; then echo "Q7: ERROR: ICU_PATH $ICU_PATH not found"; exit 1; fi
 
 xcrun simctl spawn "$SIM_UDID" /tmp/engine/engine_host_q7 \
   "$ENGINE_LIB" \
@@ -51,6 +59,7 @@ xcrun simctl spawn "$SIM_UDID" /tmp/engine/engine_host_q7 \
   198 242 15 \
   /tmp/engine_frame2.bin \
   /tmp/engine_frame3.bin > /tmp/engine/host_q7.out 2>&1 || {
+    echo "Q7: host failed with exit code $?"
     cat /tmp/engine/host_q7.out
     exit 1
   }
