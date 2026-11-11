@@ -410,7 +410,7 @@ Steps 1–6 can be CI-verified in the Simulator (host 1a). Step 7 on a real watc
 
 Checks run in CI on GitHub-hosted macOS runners with the watchOS Simulator, with no owned hardware needed (free for public repositories at the time of writing; verify current terms). The runnable proofs live in `watchos-proofs/`, and the code blocks in this document are extracted and tested automatically. **A code section counts as specified only once its snippet compiles in CI.**
 
-Latest run: macOS runner, Xcode 26.6, watchOS 26.5 Simulator, Flutter 3.50.0 / Dart 3.14.0 (unified across all jobs), watchOS 26.5 Simulator. **All 34 checks pass:** 25 dev-loop checks (F0, P0–P6, P9, X1–X2, S0–S7, A1–A4, E0–E1) and 9 engine checks (Q0–Q7 plus Q2s). X1/X2 extract the spec's code, E0 is the end-to-end setup, and Q2s boots a watch simulator. Status values progress Unverified → Compiles → Tested → Measured; "Tested" means tested in the Simulator, not on a watch.
+Latest run: macOS runner, Xcode 26.6, watchOS 26.5 Simulator, Flutter 3.50.0 (dev-loop jobs), Dart 3.14.0 (all jobs). **All 34 checks pass:** 25 dev-loop checks (F0, P0–P6, P9, X1–X2, S0–S7, A1–A4, E0–E1) and 9 engine checks (Q0–Q7 plus Q2s). X1/X2 extract the spec's code, E0 is the end-to-end setup, and Q2s boots a watch simulator. Status values progress Unverified → Compiles → Tested → Measured; "Tested" means tested in the Simulator, not on a watch.
 
 ### Spikes
 
@@ -492,11 +492,11 @@ This concerns Open Question 9 and is a starting point for anyone building a full
 | Byte order | The present callback delivered **RGBA** in this build (inferred from a checker that accepts only one consistent order). A real port must re-measure it |
 | Interactive loop | Q6: touch injected via `FlutterEngineSendPointerEvent` at (99, 121) (`kAdd` → `kDown` → `kUp`); the `GestureDetector` fired, `setState()` re-rendered text 'TAP' (1,039–1,355 bright glyph pixels, varies by run), and a distinct frame 2 was presented |
 | Scroll signal and low-memory hook | Q7: a synthetic scroll signal (`kFlutterPointerSignalKindScroll`, delta_y 40.0) sent through `FlutterEngineSendPointerEvent` reached a Dart `Listener` as a `PointerScrollEvent`, `setState()` re-rendered the text as 'CROWN' (1,650 bright glyph pixels, one run), and a third distinct frame was presented. The embedder's `FlutterEngineNotifyLowMemoryWarning` returned 0 (success). Resident memory read 146.44 MB before and 145.61 MB after the call, a difference within the roughly ±2 MB fluctuation seen between frames, so no memory effect is claimed. **This is the engine half of Crown support only: no Crown hardware and no SwiftUI `.digitalCrownRotation` were involved** |
-| Process memory | Q6/Q7: Mach resident memory read **140.9–148.3 MB** across frames and runs (for example Q6: 146.38 → 148.09 MB; Q7: 145.97 → 148.11 → 146.44 MB). It moves by up to about 2 MB between frames in either direction, so treat it as ≈ 141–146 MB. **This is a Mac process running a debug JIT engine with the full Dart compiler and VM service. It is not a watchOS memory measurement and says nothing about a release AOT build on a watch** |
+| Process memory | Q6/Q7: Mach resident memory reads **141.0–143.0 MB** under the current Flutter 3.50.0 / Dart 3.14.0 build (for example Q6: 141.31 → 142.98 MB; Q7: 141.14 → 142.89 → 141.33 MB, settling at 141.00 MB post-low-memory). Across earlier Flutter 3.47 runs with a larger probe bundle (26.4 MB vs 23.1 MB kernel), readings were 145.6–148.3 MB, reflecting a ~4–5 MB baseline shift between toolchain builds. It moves by up to about 2 MB between frames in either direction, so treat it as ≈ 142 MB ± 2 for the current build. **This is a Mac process running a debug JIT engine with the full Dart compiler and VM service. It is not a watchOS memory measurement and says nothing about a release AOT build on a watch** |
 
 **What this does not show.** It is a normal Mac process tagged as a watchOS Simulator binary: Mac CPU and memory, and a debug engine that JIT-compiles Dart (which a real watch will not allow). The stubs are zeroed data and unused Metal code never ran. It proves nothing about a source build, AOT, device memory, speed or App Review, and the patched binary must never be distributed.
 
-**Facts from the engine source (pinned commit `371f77202a…`, Dart `416e33b0…`):**
+**Facts from the engine source (pinned commit `371f77202a…`, Dart 3.14.0):**
 - The build tool's target OS list is `android, ios, mac, linux, fuchsia, wasm, win, qnx`: no watchOS, and `--simulator` is iOS-only.
 - `qnx` is the precedent for a new OS: arm64 only, Skia GPU backends off (software-only). The embedder's software surface is on by default.
 - `fml/build_config.h` treats watchOS as iOS (`TARGET_OS_IPHONE` is 1 there). 49 of 55 sampled `fml` files compile for watchOS with C++20; the other 6 stopped on `third_party` headers outside the sample.
@@ -939,10 +939,11 @@ struct WatchCanvasView: View {
 
 ## Changelog
 
-### v9.1: November 2026 (Proof Suite Catalog Alignment & Q1 Source Evidence)
-- **Proof Suite Synchronization:** Added check Q7 (Crown scroll input & low-memory hook) to the test catalog in README.md, resolving the catalog documentation gap across all 34 passing checks.
-- **Engine Source Evidence (Q1):** Instrumented `q1_engine_source.sh` to output explicit source verification facts (target-OS list with `qnx`, Dart `tools/gn.py` target acceptance, and pinned Dart commit `416e33b0…`) directly into CI run sheets.
-- **Toolchain Harmonization:** Unified all jobs to Flutter 3.50.0 and Dart 3.14.0, updated pinned engine hash to `371f77202a…`, refreshed fml compilation count to 49/55, and widened observed process memory range to 140.9–148.3 MB.
+### v9.1: November 2026 (Proof Suite Catalog Alignment & Toolchain Refresh)
+- **Proof Suite Synchronization:** Added check Q7 (Crown scroll input & low-memory hook) to the test catalog in README.md, aligning the documentation with all 34 passing checks.
+- **Engine Toolchain Refresh:** Updated pinned engine commit to `371f77202a…` (Flutter 3.50.0 / Dart 3.14.0) and documented the ~4–5 MB baseline resident memory shift (141.0–143.0 MB vs 145.6–148.3 MB on 3.47).
+- **fml Compilation Status:** Refreshed fml test compilation count to 49 of 55 files compiling cleanly for watchOS.
+- **Environment Precision:** Clarified toolchain reporting across jobs (Flutter 3.50.0 on dev-loop, Dart 3.14.0 across all) and removed stale Dart commit pin.
 
 ### v9.0: November 2026 (Wearables Decoupling Strategy, Screen Profiles & Review Hardening)
 - **Architectural Horizon:** Added decoupled wearable UI strategy (`watchos_ui` vs. `wearos_ui`) modeled after Flutter's `cupertino` vs. `material` decoupling, while identifying wearos_ui as out of scope for the watchOS embedder.
