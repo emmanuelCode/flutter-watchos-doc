@@ -22,7 +22,6 @@ while IFS= read -r dir; do
 done < <(find -L "${SEARCH_DIRS[@]}" -name "embedder.h" -exec dirname {} \; 2>/dev/null | sort -u)
 
 ALL_INCS=("-I" "$ROOT/engine_probe" $Q5_INCS "${FOUND_INCS[@]}")
-echo "Q7: using include directories: ${ALL_INCS[*]}"
 
 xcrun --sdk watchsimulator clang -arch arm64 -mwatchos-simulator-version-min=10.0 \
   -isysroot "$WATCH_SDK" \
@@ -33,8 +32,9 @@ xcrun --sdk watchsimulator clang -arch arm64 -mwatchos-simulator-version-min=10.
 
 codesign --force -s - /tmp/engine/engine_host_q7
 
+# Use the retagged, patched engine library in /tmp/engine/watchos/FlutterEmbedder
 xcrun simctl spawn "$SIM_UDID" /tmp/engine/engine_host_q7 \
-  /tmp/engine/FlutterEmbedder \
+  /tmp/engine/watchos/FlutterEmbedder \
   /tmp/engine/flutter_assets \
   /tmp/engine/icudtl.dat \
   /tmp/engine_frame.bin \
