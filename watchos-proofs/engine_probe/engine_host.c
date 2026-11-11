@@ -1,8 +1,7 @@
-// Q5 / Q6 — minimal Flutter embedder host written from scratch against embedder.h.
+// Q5 / Q6 / Q7 — minimal Flutter embedder host written from scratch against embedder.h.
 // Runs INSIDE a watchOS process: loads the retagged engine library, runs the probe app with the SOFTWARE renderer,
-// receives frames through surface_present_callback, measures Mach memory, and optionally injects touch events.
-//   engine_host <engine-lib> <flutter_assets> <icudtl.dat> <out-file> <width> <height> <seconds> [out-file-2]
-// Output file: three uint32 (width, height, rowBytes) then raw pixel bytes.
+// receives frames through surface_present_callback, measures Mach memory, and handles touch & Crown scroll events.
+//   engine_host <engine-lib> <flutter_assets> <icudtl.dat> <out-file> <width> <height> <seconds> [out2] [out3]
 #include <CoreFoundation/CoreFoundation.h>
 #include <dlfcn.h>
 #include <mach/mach.h>
@@ -17,6 +16,7 @@
 #include "embedder.h"
 
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
+
 static uint8_t* g_frame = NULL;
 static size_t g_len = 0, g_rows = 0, g_rowBytes = 0;
 static atomic_ulong g_frames = 0;
@@ -25,6 +25,11 @@ static uint8_t* g_frame_post_tap = NULL;
 static size_t g_len_post_tap = 0, g_rows_post_tap = 0, g_rowBytes_post_tap = 0;
 static atomic_ulong g_frames_post_tap = 0;
 static atomic_bool g_tap_injected = ATOMIC_VAR_INIT(false);
+
+static uint8_t* g_frame_post_crown = NULL;
+static size_t g_len_post_crown = 0, g_rows_post_crown = 0, g_rowBytes_post_crown = 0;
+static atomic_ulong g_frames_post_crown = 0;
+static atomic_bool g_crown_injected = ATOMIC_VAR_INIT(false);
 
 static bool present(void* user_data, const void* allocation, size_t row_bytes, size_t height) {
   pthread_mutex_lock(&g_lock);
@@ -35,12 +40,18 @@ static bool present(void* user_data, const void* allocation, size_t row_bytes, s
     g_rows = height;
     g_rowBytes = row_bytes;
     atomic_fetch_add(&g_frames, 1);
-  } else {
+  } else if (!atomic_load(&g_crown_injected)) {
     if (len != g_len_post_tap) { free(g_frame_post_tap); g_frame_post_tap = malloc(len); g_len_post_tap = len; }
     memcpy(g_frame_post_tap, allocation, len);
     g_rows_post_tap = height;
     g_rowBytes_post_tap = row_bytes;
     atomic_fetch_add(&g_frames_post_tap, 1);
+  } else {
+    if (len != g_len_post_crown) { free(g_frame_post_crown); g_frame_post_crown = malloc(len); g_len_post_crown = len; }
+    memcpy(g_frame_post_crown, allocation, len);
+    g_rows_post_crown = height;
+    g_rowBytes_post_crown = row_bytes;
+    atomic_fetch_add(&g_frames_post_crown, 1);
   }
   pthread_mutex_unlock(&g_lock);
   return true;
@@ -62,7 +73,6 @@ static void print_memory(const char* label) {
   }
 }
 
-// Crash reporter
 typedef int (*BacktraceFn)(void**, int);
 typedef void (*BacktraceFdFn)(void* const*, int, int);
 typedef int (*SigAltStackFn)(const stack_t*, stack_t*);
@@ -107,23 +117,24 @@ static void install_crash_handler(void) {
 typedef FlutterEngineResult (*RunFn)(size_t, const FlutterRendererConfig*, const FlutterProjectArgs*, void*, FlutterEngine*);
 typedef FlutterEngineResult (*MetricsFn)(FlutterEngine, const FlutterWindowMetricsEvent*);
 typedef FlutterEngineResult (*PointerFn)(FlutterEngine, const FlutterPointerEvent*, size_t);
+typedef FlutterEngineResult (*LowMemFn)(FlutterEngine);
 
 int main(int argc, char** argv) {
-  if (argc < 8) { fprintf(stderr, "usage: engine_host lib assets icu out width height seconds [out2]\n"); return 64; }
+  if (argc < 8) { fprintf(stderr, "usage: engine_host lib assets icu out width height seconds [out2] [out3]\n"); return 64; }
   install_crash_handler();
   const char *lib = argv[1], *assets = argv[2], *icu = argv[3], *out = argv[4];
   int width = atoi(argv[5]), height = atoi(argv[6]), seconds = atoi(argv[7]);
   const char *out2 = (argc >= 9) ? argv[8] : NULL;
+  const char *out3 = (argc >= 10) ? argv[9] : NULL;
 
   void* h = dlopen(lib, RTLD_NOW | RTLD_GLOBAL);
   if (!h) { fprintf(stderr, "DLOPEN FAIL: %s\n", dlerror()); return 2; }
   RunFn run = (RunFn)dlsym(h, "FlutterEngineRun");
   MetricsFn metrics = (MetricsFn)dlsym(h, "FlutterEngineSendWindowMetricsEvent");
   PointerFn send_pointer = (PointerFn)dlsym(h, "FlutterEngineSendPointerEvent");
-  if (!run || !metrics) { fprintf(stderr, "embedder API symbols missing\n"); return 3; }
+  LowMemFn notify_low_mem = (LowMemFn)dlsym(h, "FlutterEngineNotifyLowMemory");
 
-  fprintf(stderr, "snapshot symbols visible: kDartSnapshotData=%p kDartSnapshotText=%p\n",
-          dlsym(RTLD_DEFAULT, "kDartSnapshotData"), dlsym(RTLD_DEFAULT, "kDartSnapshotText"));
+  if (!run || !metrics) { fprintf(stderr, "embedder API symbols missing\n"); return 3; }
 
   FlutterRendererConfig cfg;
   memset(&cfg, 0, sizeof cfg);
@@ -176,7 +187,6 @@ int main(int argc, char** argv) {
     _exit(0);
   }
 
-  // Interactive mode (Q6)
   // Phase 1: Wait for initial frame
   CFAbsoluteTime deadline = CFAbsoluteTimeGetCurrent() + seconds;
   CFAbsoluteTime settle = 0;
@@ -187,11 +197,7 @@ int main(int argc, char** argv) {
   }
 
   pthread_mutex_lock(&g_lock);
-  if (!g_frame) {
-    pthread_mutex_unlock(&g_lock);
-    fprintf(stderr, "NO INITIAL FRAME within %d s\n", seconds);
-    return 5;
-  }
+  if (!g_frame) { pthread_mutex_unlock(&g_lock); fprintf(stderr, "NO INITIAL FRAME\n"); return 5; }
   FILE* f1 = fopen(out, "wb");
   uint32_t hdr1[3] = {(uint32_t)(g_rowBytes / 4), (uint32_t)g_rows, (uint32_t)g_rowBytes};
   fwrite(hdr1, sizeof hdr1, 1, f1);
@@ -201,10 +207,7 @@ int main(int argc, char** argv) {
   fprintf(stderr, "wrote initial frame to %s (%ux%u)\n", out, hdr1[0], hdr1[1]);
   print_memory("after frame 1");
 
-  if (!send_pointer) {
-    fprintf(stderr, "FlutterEngineSendPointerEvent missing, cannot test tap\n");
-    return 6;
-  }
+  if (!send_pointer) { fprintf(stderr, "FlutterEngineSendPointerEvent missing\n"); return 6; }
 
   // Phase 2: Inject Tap
   atomic_store(&g_tap_injected, true);
@@ -213,8 +216,6 @@ int main(int argc, char** argv) {
   size_t now_us = (size_t)(CFAbsoluteTimeGetCurrent() * 1e6);
 
   FlutterPointerEvent pev;
-
-  // Pointer Add
   memset(&pev, 0, sizeof pev);
   pev.struct_size = sizeof(FlutterPointerEvent);
   pev.phase = kAdd;
@@ -224,7 +225,6 @@ int main(int argc, char** argv) {
   send_pointer(engine, &pev, 1);
   CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.05, false);
 
-  // Pointer Down
   now_us = (size_t)(CFAbsoluteTimeGetCurrent() * 1e6);
   memset(&pev, 0, sizeof pev);
   pev.struct_size = sizeof(FlutterPointerEvent);
@@ -235,7 +235,6 @@ int main(int argc, char** argv) {
   send_pointer(engine, &pev, 1);
   CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.05, false);
 
-  // Pointer Up
   now_us = (size_t)(CFAbsoluteTimeGetCurrent() * 1e6);
   memset(&pev, 0, sizeof pev);
   pev.struct_size = sizeof(FlutterPointerEvent);
@@ -244,10 +243,9 @@ int main(int argc, char** argv) {
   pev.x = tap_x;
   pev.y = tap_y;
   send_pointer(engine, &pev, 1);
-
   fprintf(stderr, "injected tap at (%.1f, %.1f)\n", tap_x, tap_y);
 
-  // Phase 3: Wait for post-tap frame
+  // Phase 3: Wait for post-tap frame 2
   deadline = CFAbsoluteTimeGetCurrent() + 20.0;
   settle = 0;
   while (CFAbsoluteTimeGetCurrent() < deadline) {
@@ -257,11 +255,7 @@ int main(int argc, char** argv) {
   }
 
   pthread_mutex_lock(&g_lock);
-  if (!g_frame_post_tap) {
-    pthread_mutex_unlock(&g_lock);
-    fprintf(stderr, "NO POST-TAP FRAME within timeout\n");
-    return 7;
-  }
+  if (!g_frame_post_tap) { pthread_mutex_unlock(&g_lock); fprintf(stderr, "NO POST-TAP FRAME\n"); return 7; }
   FILE* f2 = fopen(out2, "wb");
   uint32_t hdr2[3] = {(uint32_t)(g_rowBytes_post_tap / 4), (uint32_t)g_rows_post_tap, (uint32_t)g_rowBytes_post_tap};
   fwrite(hdr2, sizeof hdr2, 1, f2);
@@ -270,9 +264,61 @@ int main(int argc, char** argv) {
   pthread_mutex_unlock(&g_lock);
   fprintf(stderr, "wrote post-tap frame to %s (%ux%u)\n", out2, hdr2[0], hdr2[1]);
   print_memory("after frame 2");
-  fprintf(stderr, "frames presented: %lu (pre-tap: %lu, post-tap: %lu)\n",
-          (unsigned long)(atomic_load(&g_frames) + atomic_load(&g_frames_post_tap)),
+
+  if (!out3) {
+    _exit(0);
+  }
+
+  // Phase 4: Inject Digital Crown Scroll Event (signal_kind = kFlutterPointerSignalKindScroll)
+  atomic_store(&g_crown_injected, true);
+  now_us = (size_t)(CFAbsoluteTimeGetCurrent() * 1e6);
+  memset(&pev, 0, sizeof pev);
+  pev.struct_size = sizeof(FlutterPointerEvent);
+  pev.phase = kHover;
+  pev.signal_kind = kFlutterPointerSignalKindScroll;
+  pev.timestamp = now_us;
+  pev.x = tap_x;
+  pev.y = tap_y;
+  pev.scroll_delta_x = 0.0;
+  pev.scroll_delta_y = 40.0; // Positive scroll delta (simulating rotating the crown down)
+  send_pointer(engine, &pev, 1);
+  fprintf(stderr, "injected Crown scroll signal (delta_y=40.0) at (%.1f, %.1f)\n", tap_x, tap_y);
+
+  // Phase 5: Wait for post-crown frame 3
+  deadline = CFAbsoluteTimeGetCurrent() + 20.0;
+  settle = 0;
+  while (CFAbsoluteTimeGetCurrent() < deadline) {
+    CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.05, false);
+    if (atomic_load(&g_frames_post_crown) > 0 && settle == 0) settle = CFAbsoluteTimeGetCurrent() + 1.5;
+    if (settle != 0 && CFAbsoluteTimeGetCurrent() > settle) break;
+  }
+
+  pthread_mutex_lock(&g_lock);
+  if (!g_frame_post_crown) { pthread_mutex_unlock(&g_lock); fprintf(stderr, "NO POST-CROWN FRAME\n"); return 8; }
+  FILE* f3 = fopen(out3, "wb");
+  uint32_t hdr3[3] = {(uint32_t)(g_rowBytes_post_crown / 4), (uint32_t)g_rows_post_crown, (uint32_t)g_rowBytes_post_crown};
+  fwrite(hdr3, sizeof hdr3, 1, f3);
+  fwrite(g_frame_post_crown, 1, g_len_post_crown, f3);
+  fclose(f3);
+  pthread_mutex_unlock(&g_lock);
+  fprintf(stderr, "wrote post-crown frame to %s (%ux%u)\n", out3, hdr3[0], hdr3[1]);
+  print_memory("after frame 3");
+
+  // Phase 6: Notify Low Memory hook test
+  if (notify_low_mem) {
+    FlutterEngineResult lmr = notify_low_mem(engine);
+    fprintf(stderr, "FlutterEngineNotifyLowMemory -> %d\n", (int)lmr);
+    for (int i = 0; i < 6; i++) {
+      CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.05, false);
+    }
+    print_memory("after notify low memory");
+  }
+
+  fprintf(stderr, "frames presented total: %lu (f1: %lu, f2: %lu, f3: %lu)\n",
+          (unsigned long)(atomic_load(&g_frames) + atomic_load(&g_frames_post_tap) + atomic_load(&g_frames_post_crown)),
           (unsigned long)atomic_load(&g_frames),
-          (unsigned long)atomic_load(&g_frames_post_tap));
+          (unsigned long)atomic_load(&g_frames_post_tap),
+          (unsigned long)atomic_load(&g_frames_post_crown));
+
   _exit(0);
 }

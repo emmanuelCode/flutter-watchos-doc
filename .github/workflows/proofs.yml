@@ -1,14 +1,11 @@
 name: watchos-proofs
 
-# Each STEP is one concept — read the step names top to bottom, that is the checklist.
-# When everything finishes, the last job ("RESULTS") prints ONE block to copy and paste.
 on: [push, pull_request, workflow_dispatch]
 
 env:
-  SPEC_FILE: flutter_watchos_architecture_v7_4.md   # <- repo-root spec file; change if yours is named differently
+  SPEC_FILE: flutter_watchos_architecture_v8_0.md
 
 jobs:
-  # ---------------------------------------------------------------------------
   flutter-side:
     name: "Flutter side — runs on a Mac"
     runs-on: macos-latest
@@ -22,40 +19,31 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-
       - name: "Record tool versions"
         run: bash "$GITHUB_WORKSPACE/watchos-proofs/scripts/env_info.sh" flutter
-
       - name: "F0 · Flutter dependencies resolve"
         run: bash "$GITHUB_WORKSPACE/watchos-proofs/scripts/step.sh" F0 flutter pub get
-
       - name: "P2 · Flutter captures a frame with no window (toImage -> raw RGBA, sizes match the bandwidth table)"
         if: ${{ !cancelled() }}
         run: bash "$GITHUB_WORKSPACE/watchos-proofs/scripts/step.sh" P2 flutter test test/p2_headless_frame_capture_test.dart
-
       - name: "P3 · A tap injected through GestureBinding changes the next captured frame"
         if: ${{ !cancelled() }}
         run: bash "$GITHUB_WORKSPACE/watchos-proofs/scripts/step.sh" P3 flutter test test/p3_tap_injection_test.dart
-
       - name: "X1 · [spec code] Extract the Dart classes from the spec"
         if: ${{ !cancelled() }}
         run: bash "$GITHUB_WORKSPACE/watchos-proofs/scripts/step.sh" X1 python3 "$GITHUB_WORKSPACE/watchos-proofs/scripts/extract_spec_code.py" "$GITHUB_WORKSPACE/$SPEC_FILE" dart
-
       - name: "S1 · [spec code] Real WatchFrameStreamer + WatchInputInjector: capture, tap, next frame"
         if: ${{ !cancelled() }}
         run: bash "$GITHUB_WORKSPACE/watchos-proofs/scripts/step.sh" --needs X1 S1 flutter test test/s1_spec_streamer_injector_test.dart
-
       - name: "S7 · [spec code] captureNow() pushes the current frame from an idle app"
         if: ${{ !cancelled() }}
         run: bash "$GITHUB_WORKSPACE/watchos-proofs/scripts/step.sh" --needs X1 S7 flutter test test/s7_capture_now_test.dart
-
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
           name: results-flutter
           path: /tmp/proof_results.txt
           if-no-files-found: warn
-
       - uses: actions/upload-artifact@v4
         if: ${{ failure() }}
         with:
@@ -63,7 +51,6 @@ jobs:
           path: /tmp/proof_logs
           if-no-files-found: ignore
 
-  # ---------------------------------------------------------------------------
   swift-watchos:
     name: "Swift side — watchOS Simulator"
     runs-on: macos-latest
@@ -75,110 +62,89 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dart-lang/setup-dart@v1
-
       - name: "Record tool versions"
         run: bash scripts/env_info.sh swift
-
       - name: "P1 · A watchOS Simulator exists on this runner and boots"
         timeout-minutes: 15
         run: bash scripts/step.sh P1 bash scripts/pick_watch_sim.sh
-
       - name: "P0 · The Swift code compiles for watchOS"
         if: ${{ !cancelled() }}
         timeout-minutes: 15
         run: bash scripts/step.sh --sim P0 bash scripts/build_swift.sh
-
       - name: "P4 · Raw RGBA bytes become a CGImage with the right pixels"
         if: ${{ !cancelled() }}
         timeout-minutes: 10
         run: bash scripts/step.sh --sim P4 bash scripts/run_swift_test.sh P4_RgbaToCGImageTests
-
       - name: "P5 · SwiftUI Canvas draws the frame it is given (pixels checked)"
         if: ${{ !cancelled() }}
         timeout-minutes: 10
         run: bash scripts/step.sh --sim P5 bash scripts/run_swift_test.sh P5_CanvasDrawsPixelsTests
-
       - name: "P6 · Dart WebSocket server -> watchOS client: a frame comes down, a tap goes up"
         if: ${{ !cancelled() }}
         timeout-minutes: 10
         run: bash scripts/step.sh --sim P6 bash scripts/run_p6_with_server.sh
-
       - name: "A1 · [Appendix A] Canvas text anchored .topLeading stays in the corner; .center does not"
         if: ${{ !cancelled() }}
         timeout-minutes: 10
         run: bash scripts/step.sh --sim A1 bash scripts/run_swift_test.sh A1_TextAnchorTests
-
       - name: "A2 · [Appendix A] Triple-buffer mailbox: writer never blocks, newest frame wins"
         if: ${{ !cancelled() }}
         timeout-minutes: 10
         run: bash scripts/step.sh --sim A2 bash scripts/run_swift_test.sh A2_MailboxTests
-
       - name: "A3 · [Appendix A] Bytes written by Dart are parsed correctly by Swift (incl. padding, misaligned base)"
         if: ${{ !cancelled() }}
         timeout-minutes: 10
         run: >
           bash scripts/step.sh --sim A3 bash -c
           'dart run dart_tools/gen_wire_fixture.dart && bash scripts/run_swift_test.sh A3_WireFormatTests'
-
       - name: "A4 · [Appendix A] A @_cdecl Swift function is found by dlsym (what DynamicLibrary.process() uses)"
         if: ${{ !cancelled() }}
         timeout-minutes: 10
         run: bash scripts/step.sh --sim A4 bash scripts/run_swift_test.sh A4_CdeclSymbolTests
-
       - name: "P9 · Sustained transport: 100 frames x pixel ratio 1.0/2.0 x raw/zlib/delta (numbers logged)"
         if: ${{ !cancelled() }}
         timeout-minutes: 15
         run: bash scripts/step.sh --sim P9 bash scripts/run_with_server.sh dart_tools/ws_stream_server.dart 8766 P9_TransportThroughputTests
-
       - name: "X2 · [spec code] Extract the Swift code from the spec"
         if: ${{ !cancelled() }}
         timeout-minutes: 10
         run: bash scripts/step.sh X2 python3 scripts/extract_spec_code.py "$GITHUB_WORKSPACE/$SPEC_FILE" swift
-
       - name: "S0 · [spec code] The spec's Swift code compiles for watchOS"
         if: ${{ !cancelled() }}
         timeout-minutes: 15
         run: bash scripts/step.sh --needs P1,X2 S0 bash scripts/swift_pkg.sh build swift_spec SpecCode
-
       - name: "S2 · [spec code] Color(argb:) renders the right channels"
         if: ${{ !cancelled() }}
         timeout-minutes: 10
         run: bash scripts/step.sh --needs P1,X2,S0 S2 bash scripts/swift_pkg.sh test swift_spec SpecCode SpecCodeTests/S2_ColorARGBTests
-
       - name: "S3 · [spec code] WatchFrameStore + WatchFrameView draw a frame, stretched to fill"
         if: ${{ !cancelled() }}
         timeout-minutes: 10
         run: bash scripts/step.sh --needs P1,X2,S0 S3 bash scripts/swift_pkg.sh test swift_spec SpecCode SpecCodeTests/S3_FrameStoreViewTests
-
       - name: "S4 · [spec code] WatchFrameView redraws when a new frame is published"
         if: ${{ !cancelled() }}
         timeout-minutes: 10
         run: bash scripts/step.sh --needs P1,X2,S0 S4 bash scripts/swift_pkg.sh test swift_spec SpecCode SpecCodeTests/S4_FrameViewRedrawTests
-
       - name: "S5 · [spec code] WatchRenderStore + @_cdecl slab API + WatchCanvasView draw Dart-style bytes"
         if: ${{ !cancelled() }}
         timeout-minutes: 10
         run: bash scripts/step.sh --needs P1,X2,S0 S5 bash scripts/swift_pkg.sh test swift_spec SpecCode SpecCodeTests/S5_RenderStoreCanvasTests
-
       - name: "S6 · [spec code] WatchCanvasView redraws on frameTick with no TimelineView (experimental)"
         if: ${{ !cancelled() }}
         timeout-minutes: 10
         run: bash scripts/step.sh --needs P1,X2,S0 S6 bash scripts/swift_pkg.sh test swift_spec SpecCode SpecCodeTests/S6_CanvasTickRedrawTests
-
       - name: "Collect measurements logged by the tests"
         if: ${{ always() }}
         run: |
           if [ -f /tmp/watch_proofs/results.log ]; then
             sed 's/^/INFO|SIM|/' /tmp/watch_proofs/results.log >> /tmp/proof_results.txt
           fi
-
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
           name: results-swift
           path: /tmp/proof_results.txt
           if-no-files-found: warn
-
       - uses: actions/upload-artifact@v4
         if: ${{ failure() }}
         with:
@@ -190,7 +156,6 @@ jobs:
             /tmp/ws_server.log
           if-no-files-found: ignore
 
-  # ---------------------------------------------------------------------------
   e2e:
     name: "End-to-end — real Flutter streamer <-> watchOS client"
     runs-on: macos-latest
@@ -204,33 +169,27 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-
       - name: "Record tool versions"
         run: bash scripts/env_info.sh swift
-
       - name: "E0 · [e2e] Simulator boots, spec code extracted, Flutter deps resolved"
         timeout-minutes: 15
         run: bash scripts/step.sh E0 bash scripts/e2e_setup.sh
-
       - name: "E1 · [e2e] The whole loop: real streamer -> WebSocket -> real WatchFrameView; tap back -> next frame"
         if: ${{ !cancelled() }}
         timeout-minutes: 25
         run: bash scripts/step.sh --needs E0 E1 bash scripts/run_e2e.sh
-
       - name: "Collect measurements logged by the tests"
         if: ${{ always() }}
         run: |
           if [ -f /tmp/watch_proofs/results.log ]; then
             sed 's/^/INFO|SIM|/' /tmp/watch_proofs/results.log >> /tmp/proof_results.txt
           fi
-
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
           name: results-e2e
           path: /tmp/proof_results.txt
           if-no-files-found: warn
-
       - uses: actions/upload-artifact@v4
         if: ${{ failure() }}
         with:
@@ -241,9 +200,6 @@ jobs:
             /tmp/e2e_server.log
           if-no-files-found: ignore
 
-  # ---------------------------------------------------------------------------
-  # Open Question 9: can a Flutter engine run on watchOS?  Built from scratch: official Flutter artifacts,
-  # Apple's SDK and embedder.h only. No third-party toolchain.
   engine:
     name: "Engine on watchOS — from official artifacts (gap analysis + experiments)"
     runs-on: macos-latest
@@ -257,80 +213,66 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-
       - name: "Record tool versions"
         run: |
           bash scripts/env_info.sh swift
           bash scripts/env_info.sh flutter
-
       - name: "Q0 · [engine] What a hosted runner offers (cpu, memory, disk)"
         run: bash scripts/step.sh Q0 bash scripts/q0_capacity.sh
-
       - name: "Q1 · [engine] Real engine source: facts, and does the engine base layer (fml) compile for watchOS?"
         if: ${{ !cancelled() }}
         timeout-minutes: 20
         run: bash scripts/step.sh Q1 bash scripts/q1_engine_source.sh
-
       - name: "Q2 · [engine] Official engine pieces gathered (embedder library, icu data, iOS engine, probe bundle)"
         if: ${{ !cancelled() }}
         timeout-minutes: 25
         run: bash scripts/step.sh Q2 bash scripts/q2_engine_artifacts.sh
-
       - name: "Q2s · [engine] A watch simulator boots"
         if: ${{ !cancelled() }}
         timeout-minutes: 15
         run: bash scripts/step.sh Q2s bash scripts/pick_watch_sim.sh
-
       - name: "Q3 · [engine] Gap analysis: what the official engines import that watchOS lacks"
         if: ${{ !cancelled() }}
         timeout-minutes: 15
         run: bash scripts/step.sh --needs Q2 Q3 bash scripts/q3_gap.sh
-
       - name: "Q4 · [engine] EXPERIMENT: retagged embedder library loads in a watchOS process"
         if: ${{ !cancelled() }}
         timeout-minutes: 10
         run: bash scripts/step.sh --needs Q2,Q2s Q4 bash scripts/q4_retarget_load.sh
-
       - name: "Q5 · [engine] EXPERIMENT: Flutter runs in a watchOS process via embedder.h (software renderer)"
         if: ${{ !cancelled() }}
         timeout-minutes: 10
         run: bash scripts/step.sh --needs Q1,Q2,Q2s,Q4 Q5 bash scripts/q5_run_engine.sh
-
       - name: "Q6 · [engine] EXPERIMENT: Interactive loop (tap -> setState -> frame 2) + memory logged"
         if: ${{ !cancelled() }}
         timeout-minutes: 10
-        run: bash scripts/step.sh --needs Q1,Q2,Q2s,Q4,Q5 Q6 bash scripts/q6_interactive_engine.sh
-
+        run: bash scripts/step.sh --needs Q5 Q6 bash scripts/q6_engine_pointer.sh
+      - name: "Q7 · [engine] EXPERIMENT: Crown scroll input (signal_kind=scroll -> setState -> frame 3) + low memory hook"
+        if: ${{ !cancelled() }}
+        timeout-minutes: 10
+        run: bash scripts/step.sh --needs Q6 Q7 bash scripts/q7_crown_and_memory.sh
       - name: "Collect measurements logged by the steps"
         if: ${{ always() }}
         run: |
           if [ -f /tmp/watch_proofs/results.log ]; then
             sed 's/^/INFO|SIM|/' /tmp/watch_proofs/results.log >> /tmp/proof_results.txt
           fi
-
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
           name: results-engine
           path: /tmp/proof_results.txt
           if-no-files-found: warn
-
-      - name: "Upload the frame the engine rendered (look at it!)"
+      - name: "Upload the frames the engine rendered"
         uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
-          name: engine-frame
-          path: /tmp/engine_frame.png
+          name: engine-frames
+          path: |
+            /tmp/engine_frame.png
+            /tmp/engine_frame2.png
+            /tmp/engine_frame3.png
           if-no-files-found: ignore
-
-      - name: "Upload the interactive frame the engine rendered (look at it!)"
-        uses: actions/upload-artifact@v4
-        if: ${{ always() }}
-        with:
-          name: engine-interactive-frame
-          path: /tmp/engine_frame2.png
-          if-no-files-found: ignore
-
       - uses: actions/upload-artifact@v4
         if: ${{ failure() }}
         with:
@@ -338,12 +280,12 @@ jobs:
           path: |
             /tmp/proof_logs
             /tmp/engine/host.out
-            /tmp/engine/interactive.out
+            /tmp/engine/host_q6.out
+            /tmp/engine/host_q7.out
             /tmp/engine/load.out
             /tmp/fml_results.txt
           if-no-files-found: ignore
 
-  # ---------------------------------------------------------------------------
   report:
     name: "RESULTS — open this job and copy the block"
     needs: [flutter-side, swift-watchos, e2e, engine]

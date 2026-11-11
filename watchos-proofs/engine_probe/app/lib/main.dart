@@ -1,77 +1,80 @@
-// Probe app for the engine-on-watchOS experiments.
-// Three stripes; every colour is computed by Dart at run time:
-//   Before tap (_taps == 0):
-//     stripe 1: green if Dart executed (fib(20) == 6765), red if it computed something else
-//     stripe 2: white letter "W" on black  -> proves text shaping + fonts work
-//     stripe 3: constant blue              -> proves a second painted region (and tells BGRA from RGBA)
-//   After tap (_taps > 0):
-//     stripe 1: yellow                     -> proves touch event reached Dart & setState() ran
-//     stripe 2: white "TAP" on black       -> proves dynamic text re-shaping and layout
-//     stripe 3: constant cyan              -> proves repainted second region
+import 'package:flutter/gestures.dart';
 import 'package:flutter/widgets.dart';
 
-int _fib(int n) => n < 2 ? n : _fib(n - 1) + _fib(n - 2);
+int fib(int n) => n <= 1 ? n : fib(n - 1) + fib(n - 2);
 
-void main() => runApp(const _Probe());
-
-class _Probe extends StatefulWidget {
-  const _Probe({super.key});
-
-  @override
-  State<_Probe> createState() => _ProbeState();
+void main() {
+  runApp(const ProbeApp());
 }
 
-class _ProbeState extends State<_Probe> {
-  int _taps = 0;
+class ProbeApp extends StatefulWidget {
+  const ProbeApp({super.key});
+
+  @override
+  State<ProbeApp> createState() => _ProbeAppState();
+}
+
+class _ProbeAppState extends State<ProbeApp> {
+  Color _stripe1Color = const Color(0xFF00FF00); // Green (Frame 1: Q5)
+  Color _stripe3Color = const Color(0xFF0000FF); // Blue (Frame 1: Q5)
+  String _glyph = 'W';
+
+  void _handleTap() {
+    setState(() {
+      _stripe1Color = const Color(0xFFFFFF00); // Yellow (Frame 2: Q6)
+      _stripe3Color = const Color(0xFF00FFFF); // Cyan (Frame 2: Q6)
+      _glyph = 'TAP';
+    });
+  }
+
+  void _handlePointerSignal(PointerSignalEvent event) {
+    if (event is PointerScrollEvent) {
+      setState(() {
+        _stripe1Color = const Color(0xFFFF00FF); // Magenta (Frame 3: Q7)
+        _stripe3Color = const Color(0xFF8800FF); // Purple (Frame 3: Q7)
+        _glyph = 'CROWN';
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final dartRan = _fib(20) == 6765;
-    final Color s1Color = _taps == 0
-        ? (dartRan ? const Color(0xFF00FF00) : const Color(0xFFFF0000))
-        : const Color(0xFFFFFF00);
-    final String s2Text = _taps == 0 ? 'W' : 'TAP';
-    final Color s3Color = _taps == 0 ? const Color(0xFF0000FF) : const Color(0xFF00FFFF);
-
-    return Directionality(
-      textDirection: TextDirection.ltr,
+    final bool fibOk = fib(20) == 6765;
+    return Listener(
+      onPointerSignal: _handlePointerSignal,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () {
-          setState(() {
-            _taps++;
-          });
-        },
-        child: Column(
-          children: [
-            Expanded(
-              child: ColoredBox(
-                color: s1Color,
-                child: const SizedBox.expand(),
+        onTap: _handleTap,
+        child: Directionality(
+          textDirection: TextDirection.ltr,
+          child: Column(
+            children: [
+              Expanded(
+                child: Container(
+                  color: fibOk ? _stripe1Color : const Color(0xFFFF0000),
+                ),
               ),
-            ),
-            Expanded(
-              child: ColoredBox(
-                color: const Color(0xFF000000),
-                child: Center(
+              Expanded(
+                child: Container(
+                  color: const Color(0xFF000000),
+                  alignment: Alignment.center,
                   child: Text(
-                    s2Text,
-                    style: TextStyle(
-                      color: const Color(0xFFFFFFFF),
-                      fontSize: _taps == 0 ? 80 : 50,
-                      decoration: TextDecoration.none,
+                    _glyph,
+                    style: const TextStyle(
+                      color: Color(0xFFFFFFFF),
+                      fontSize: 48,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                 ),
               ),
-            ),
-            Expanded(
-              child: ColoredBox(
-                color: s3Color,
-                child: const SizedBox.expand(),
+              Expanded(
+                child: Container(
+                  color: _stripe3Color,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
