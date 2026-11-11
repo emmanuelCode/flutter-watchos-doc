@@ -129,7 +129,7 @@ int main(int argc, char** argv) {
   RunFn run = (RunFn)dlsym(h, "FlutterEngineRun");
   MetricsFn metrics = (MetricsFn)dlsym(h, "FlutterEngineSendWindowMetricsEvent");
   PointerFn send_pointer = (PointerFn)dlsym(h, "FlutterEngineSendPointerEvent");
-  LowMemFn notify_low_mem = (LowMemFn)dlsym(h, "FlutterEngineNotifyLowMemory");
+  LowMemFn notify_low_mem = (LowMemFn)dlsym(h, "FlutterEngineNotifyLowMemoryWarning");
 
   if (!run || !metrics) { fprintf(stderr, "embedder API symbols missing\n"); return 3; }
 
@@ -304,7 +304,7 @@ int main(int argc, char** argv) {
   // Phase 6: Notify Low Memory hook test
   if (notify_low_mem) {
     FlutterEngineResult lmr = notify_low_mem(engine);
-    fprintf(stderr, "FlutterEngineNotifyLowMemory -> %d\n", (int)lmr);
+    fprintf(stderr, "FlutterEngineNotifyLowMemoryWarning -> %d\n", (int)lmr);
     for (int i = 0; i < 6; i++) {
       CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.05, false);
     }
