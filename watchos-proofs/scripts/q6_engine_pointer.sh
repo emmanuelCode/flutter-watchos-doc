@@ -58,7 +58,10 @@ xcrun simctl spawn "$SIM_UDID" /tmp/engine/engine_host_q6 \
     exit 1
   }
 
-cat /tmp/engine/host_q6.out
+# Forward memory measurements to stdout so CI sheet captures them
+grep -E "memory" /tmp/engine/host_q6.out | while IFS= read -r line; do
+  echo "Q6: $line"
+done
 
 python3 "$ROOT/scripts/frame_check.py" /tmp/engine_frame2.bin /tmp/engine_frame2.png --frame2
 

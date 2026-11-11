@@ -59,7 +59,10 @@ xcrun simctl spawn "$SIM_UDID" /tmp/engine/engine_host_q7 \
     exit 1
   }
 
-cat /tmp/engine/host_q7.out
+# Forward memory measurements and low-memory hook status to stdout
+grep -E "(memory|FlutterEngineNotifyLowMemory)" /tmp/engine/host_q7.out | while IFS= read -r line; do
+  echo "Q7: $line"
+done
 
 python3 "$ROOT/scripts/frame_check.py" /tmp/engine_frame3.bin /tmp/engine_frame3.png --frame3
 
