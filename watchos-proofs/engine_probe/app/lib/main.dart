@@ -41,6 +41,7 @@ class _ProbeAppState extends State<ProbeApp> {
   Widget build(BuildContext context) {
     final bool fibOk = fib(20) == 6765;
     return Listener(
+      behavior: HitTestBehavior.opaque,
       onPointerSignal: _handlePointerSignal,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,

@@ -246,7 +246,7 @@ jobs:
       - name: "Q6 · [engine] EXPERIMENT: Interactive loop (tap -> setState -> frame 2) + memory logged"
         if: ${{ !cancelled() }}
         timeout-minutes: 10
-        run: bash scripts/step.sh --needs Q5 Q6 bash scripts/q6_engine_pointer.sh
+        run: bash scripts/step.sh --needs Q5 Q6 bash scripts/q6_interactive_engine.sh
       - name: "Q7 · [engine] EXPERIMENT: Crown scroll input (signal_kind=scroll -> setState -> frame 3) + low memory hook"
         if: ${{ !cancelled() }}
         timeout-minutes: 10

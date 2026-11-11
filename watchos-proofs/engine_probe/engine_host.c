@@ -1,7 +1,4 @@
 // Q5 / Q6 / Q7 — minimal Flutter embedder host written from scratch against embedder.h.
-// Runs INSIDE a watchOS process: loads the retagged engine library, runs the probe app with the SOFTWARE renderer,
-// receives frames through surface_present_callback, measures Mach memory, and handles touch & Crown scroll events.
-//   engine_host <engine-lib> <flutter_assets> <icudtl.dat> <out-file> <width> <height> <seconds> [out2] [out3]
 #include <CoreFoundation/CoreFoundation.h>
 #include <dlfcn.h>
 #include <mach/mach.h>
@@ -280,7 +277,7 @@ int main(int argc, char** argv) {
   pev.x = tap_x;
   pev.y = tap_y;
   pev.scroll_delta_x = 0.0;
-  pev.scroll_delta_y = 40.0; // Positive scroll delta (simulating rotating the crown down)
+  pev.scroll_delta_y = 40.0;
   send_pointer(engine, &pev, 1);
   fprintf(stderr, "injected Crown scroll signal (delta_y=40.0) at (%.1f, %.1f)\n", tap_x, tap_y);
 

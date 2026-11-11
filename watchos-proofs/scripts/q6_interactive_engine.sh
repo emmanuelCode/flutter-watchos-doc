@@ -1,36 +1,39 @@
 #!/usr/bin/env bash
-# Q6 — EXPERIMENT: interactive loop in a watchOS process.
-# Injects a tap via FlutterEngineSendPointerEvent, triggers setState in Dart,
-# and verifies that Frame 2 is rendered and presented with updated content.
-# Also logs Mach task memory footprint (resident & virtual memory).
-set -uo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-UDID="${WATCH_UDID:?WATCH_UDID is not set}"
-rl() { mkdir -p /tmp/watch_proofs; echo "$*" >> /tmp/watch_proofs/results.log; echo "$*"; }
+set -euo pipefail
 
-rm -f /tmp/engine_frame1.bin /tmp/engine_frame1.png /tmp/engine_frame2.bin /tmp/engine_frame2.png
-xcrun simctl spawn "$UDID" /tmp/engine/engine_host /tmp/engine/watchos/FlutterEmbedder \
-  /tmp/engine/assets/flutter_assets /tmp/engine/icudtl.dat /tmp/engine_frame1.bin 198 242 60 /tmp/engine_frame2.bin > /tmp/engine/interactive.out 2>&1 &
-PID=$!
-for _ in $(seq 1 90); do kill -0 "$PID" 2>/dev/null || break; sleep 1; done
-kill "$PID" 2>/dev/null; wait "$PID" 2>/dev/null; HOST_RC=$?
-cat /tmp/engine/interactive.out | tail -n 40
-grep -E "FlutterEngineRun|frames presented|injected tap|memory|wrote initial|wrote post-tap|NO FRAME|NO INITIAL|NO POST-TAP|DLOPEN FAIL|CRASH signal" /tmp/engine/interactive.out | while read -r l; do rl "Q6: host: $l"; done
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+WATCH_SDK="$(xcrun --sdk watchsimulator --show-sdk-path)"
+SIM_UDID="${WATCH_UDID:-$(cat /tmp/watch_sim_udid 2>/dev/null || cat /tmp/watch_udid 2>/dev/null || xcrun simctl list devices booted | grep -E -o '[0-9A-F-]{36}' | head -n 1)}"
 
-if [ ! -f /tmp/engine_frame2.bin ]; then
-  awk '/^CRASH signal/{p=1} p' /tmp/engine/interactive.out | head -n 40 | while read -r l; do rl "Q6: crash: $l"; done
-  echo "FAIL: Frame 2 was not produced after tap injection (host exit code $HOST_RC)"
+echo "Q6: using simulator $SIM_UDID"
+
+xcrun --sdk watchsimulator clang -arch arm64 -mwatchos-simulator-version-min=10.0 \
+  -isysroot "$WATCH_SDK" \
+  -I "$ROOT/engine_probe" \
+  "$ROOT/engine_probe/engine_host.c" \
+  -o /tmp/engine/engine_host_q6 \
+  -framework CoreFoundation
+
+codesign --force -s - /tmp/engine/engine_host_q6
+
+xcrun simctl spawn "$SIM_UDID" /tmp/engine/engine_host_q6 \
+  /tmp/engine/FlutterEmbedder \
+  /tmp/engine/flutter_assets \
+  /tmp/engine/icudtl.dat \
+  /tmp/engine_frame.bin \
+  198 242 12 \
+  /tmp/engine_frame2.bin > /tmp/engine/host_q6.out 2>&1 || {
+    cat /tmp/engine/host_q6.out
+    exit 1
+  }
+
+cat /tmp/engine/host_q6.out
+
+python3 "$ROOT/scripts/frame_check.py" /tmp/engine_frame2.bin /tmp/engine_frame2.png --frame2
+
+if cmp -s /tmp/engine_frame.bin /tmp/engine_frame2.bin; then
+  echo "Q6: FAIL - frame 1 and frame 2 are identical"
   exit 1
+else
+  echo "Q6: PASS - frame 1 and frame 2 are distinct binary frames"
 fi
-
-if cmp -s /tmp/engine_frame1.bin /tmp/engine_frame2.bin; then
-  echo "FAIL: Frame 1 and Frame 2 are byte-identical; tap did not change pixels"
-  exit 1
-fi
-rl "Q6: Frame 1 and Frame 2 differ (tap changed rendered pixels)"
-
-python3 -m venv /tmp/pyenv >/dev/null 2>&1; /tmp/pyenv/bin/pip install --quiet pillow >/dev/null 2>&1
-/tmp/pyenv/bin/python "$ROOT/scripts/frame_check.py" /tmp/engine_frame2.bin /tmp/engine_frame2.png --frame2
-RC=$?
-[ "$RC" -eq 0 ] && echo "PASS: Interactive loop verified on watchOS: tap -> setState -> frame 2 rendered; memory logged"
-exit "$RC"
