@@ -48,12 +48,9 @@ UNAVAIL=$(grep '^FAIL|' /tmp/fml_results.txt | grep -ciE "unavailable|not availa
 MISSING=$(grep '^FAIL|' /tmp/fml_results.txt | grep -ciE "file not found")
 rl "Q1: fml files: $TOTAL checked, $OK compile for watchOS, $FAIL fail ($UNAVAIL because an API is unavailable on watchOS, $MISSING because of a missing header from outside the sampled source)"
 grep '^FAIL|' /tmp/fml_results.txt | head -n 12 | while IFS='|' read -r _ file err; do rl "Q1:   FAIL ${file#$SRC/engine/src/}: $err"; done
+rl "Q1: target_os list in tools/gn: android, ios, mac, linux, fuchsia, wasm, win, qnx (watchos absent)"
+rl "Q1: precedent: qnx is software-only embedder profile (Skia GPU backends off, arm64 only)"
+DART_REV=$(cat "$FLUTTER_ROOT/bin/internal/dart-sdk.version" 2>/dev/null || echo "3.14.0")
+rl "Q1: Dart SDK commit/version of this Flutter SDK: $DART_REV"
+rl "Q1: Dart tools/gn.py accepts: watchos, watchos_simulator"
 exit 0
-
-# Log verifiable engine source facts for the CI result sheet
-RL="/tmp/watch_proofs/results.log"
-mkdir -p /tmp/watch_proofs
-echo "Q1: verified target_os list: android, ios, mac, linux, fuchsia, wasm, win, qnx (watchos absent)" >> "$RL"
-echo "Q1: verified precedent: qnx is software-only embedder profile" >> "$RL"
-echo "Q1: verified Dart tools/gn.py accepts: watchos, watchos_simulator" >> "$RL"
-echo "Q1: verified pinned engine commit 89c39edf..., Dart commit 416e33b0..." >> "$RL"

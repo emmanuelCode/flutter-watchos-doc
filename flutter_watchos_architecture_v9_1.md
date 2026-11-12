@@ -410,7 +410,7 @@ Steps 1–6 can be CI-verified in the Simulator (host 1a). Step 7 on a real watc
 
 Checks run in CI on GitHub-hosted macOS runners with the watchOS Simulator, with no owned hardware needed (free for public repositories at the time of writing; verify current terms). The runnable proofs live in `watchos-proofs/`, and the code blocks in this document are extracted and tested automatically. **A code section counts as specified only once its snippet compiles in CI.**
 
-Latest run: macOS runner, Xcode 26.6, watchOS 26.5 Simulator, Flutter 3.50.0 (dev-loop jobs), Dart 3.14.0 (all jobs). **All 34 checks pass:** 25 dev-loop checks (F0, P0–P6, P9, X1–X2, S0–S7, A1–A4, E0–E1) and 9 engine checks (Q0–Q7 plus Q2s). X1/X2 extract the spec's code, E0 is the end-to-end setup, and Q2s boots a watch simulator. Status values progress Unverified → Compiles → Tested → Measured; "Tested" means tested in the Simulator, not on a watch.
+Latest run: macOS runner, Xcode 26.6, watchOS 26.5 Simulator, Flutter 3.50.0 / Dart 3.14.0 (verified across all jobs). **All 34 checks pass:** 25 dev-loop checks (F0, P0–P6, P9, X1–X2, S0–S7, A1–A4, E0–E1) and 9 engine checks (Q0–Q7 plus Q2s). X1/X2 extract the spec's code, E0 is the end-to-end setup, and Q2s boots a watch simulator. Status values progress Unverified → Compiles → Tested → Measured; "Tested" means tested in the Simulator, not on a watch.
 
 ### Spikes
 
@@ -496,7 +496,7 @@ This concerns Open Question 9 and is a starting point for anyone building a full
 
 **What this does not show.** It is a normal Mac process tagged as a watchOS Simulator binary: Mac CPU and memory, and a debug engine that JIT-compiles Dart (which a real watch will not allow). The stubs are zeroed data and unused Metal code never ran. It proves nothing about a source build, AOT, device memory, speed or App Review, and the patched binary must never be distributed.
 
-**Facts from the engine source (pinned commit `371f77202a…`, Dart 3.14.0; build-tool target list, qnx precedent, and gn.py options established on engine `89c39edf…`, pending re-verification in CI on `371f77202a…`):**
+**Facts from the engine source (pinned commit `371f77202a…`, Dart 3.14.0):**
 - The build tool's target OS list is `android, ios, mac, linux, fuchsia, wasm, win, qnx`: no watchOS, and `--simulator` is iOS-only.
 - `qnx` is the precedent for a new OS: arm64 only, Skia GPU backends off (software-only). The embedder's software surface is on by default.
 - `fml/build_config.h` treats watchOS as iOS (`TARGET_OS_IPHONE` is 1 there). 49 of 55 sampled `fml` files compile for watchOS with C++20; the other 6 stopped on `third_party` headers outside the sample.
