@@ -949,7 +949,7 @@ struct WatchCanvasView: View {
 
 ### v9.0: November 2026 (Wearables Decoupling Strategy, Screen Profiles & Review Hardening)
 - **Architectural Horizon:** Added decoupled wearable UI strategy (`watchos_ui` vs. `wearos_ui`) modeled after Flutter's `cupertino` vs. `material` decoupling, while identifying wearos_ui as out of scope for the watchOS embedder.
-- **Refreshed Validation Numbers:** Widened process memory range to 145.6–148.3 MB (accounting for Q7 frame 2 reading 148.27 MB), updated P6 first-frame latency range to 120–259 ms, and documented toolchain differences across jobs (Dart 3.13.7 for dev-loop vs. Dart 3.14.0 for engine checks).
+- **Refreshed Validation Numbers:** Widened process memory range to 145.6–148.3 MB (accounting for Q7 frame 2 reading 148.27 MB), updated P6 first-frame latency range to 120–232 ms, and documented toolchain differences across jobs (Dart 3.13.7 for dev-loop vs. Dart 3.14.0 for engine checks).
 - **Modern Screen Profiles:** Added Apple Watch Series 10/11 display dimensions (42 mm 187×223 pt, 46 mm 208×248 pt) and noted test-profile resolution gap against the 46 mm CI runner.
 - **Risk Assessment:** Added Skia CPU deprecation and Impeller's lack of a software rasterizer as a primary risk for Path A.
 - **Compliance & Terminology:** Clarified engine provenance ("official Flutter sources plus an open patch set"), removed desktop IOSurface reference, and added missing sections to Table of Contents.
@@ -969,7 +969,7 @@ struct WatchCanvasView: View {
 - Removed LaTeX markup (`$\to$`).
 - **Compliance:** added a short Compliance Principles section (a design-scope statement, not a compliance review). The Metal-overlay route reported for flutter-watchos is recorded as an unassessed risk (Open Question 12) and not adopted; a public-API audit was added to Phase 3.
 - **Related Work:** rewritten from flutterwatch.dev, the August 2026 article and the pub.dev pages. The site confirms App Store apps, so that claim stands (sourced to the site); status updated from "closed beta" to the site's current public sign-in model. Added its reported Impeller-on-Metal route (consistent with check Q3: the SDK lacks `MTLCreateSystemDefaultDevice`) as new Open Question 12 and a note in Constraints and Mode 2.
-- **Numbers refreshed from the latest CI sheet:** memory is shown as a range across runs (145.6–148.3 MB, fluctuating ±2 MB; the Q7 low-memory call is logged), P6 first-frame time 120–259 ms, bright-glyph counts shown as per-run ranges, and P9 raw/1.0 encode time 0.5–1.9 ms (the previous upper bound, 1.2, was exceeded).
+- **Numbers refreshed from the latest CI sheet:** memory is shown as a range across runs (145.6–148.3 MB, fluctuating ±2 MB; the Q7 low-memory call is logged), P6 first-frame time 120–232 ms, bright-glyph counts shown as per-run ranges, and P9 raw/1.0 encode time 0.5–1.9 ms (the previous upper bound, 1.2, was exceeded).
 
 **Condensation (~1,670 → ~930 lines, about 250 of them verbatim tested code)**
 - Removed the protobuf `DisplayList` schema, the untested `WatchCanvas` interceptor (A.4) and display-list renderer (A.5), the FFI bridge example and the swiftgen history, all untested or superseded research. Removed the Antigravity agent-strategy and tooling-stack sections and the "present the MVP" marketing steps (author workflow, not architecture).
