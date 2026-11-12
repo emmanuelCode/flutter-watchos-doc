@@ -22,8 +22,8 @@ Fix order: **F0 → P1 → P0 → everything else.** A failure in P1 or P0 block
 instead of failing for confusing reasons. Full logs are attached to the run as `logs-*` artifacts, but only when
 something fails.
 
-**Latest result:** 34 of 34 checks passed (macOS 26.7, Xcode 26.6, watchOS 26.5 Simulator, Flutter 3.47 / Dart 3.13.7
-for the dev-loop jobs, Dart 3.14.0 for the engine runner).
+**Latest result:** 34 of 34 checks passed (commit d3652cd, run 43134734519; runner image macos26 20261102.0473.1, macOS 26.7.2,
+Xcode 26.6, watchOS 26.5 Simulator, Flutter 3.50.0, Dart 3.14.0 on all jobs).
 
 ## Test catalog
 
@@ -84,14 +84,14 @@ engine from source is beyond a hosted runner, so these checks ask what *can* be 
 
 | ID | Type | What it tests | Purpose | A pass means — and its limits |
 |---|---|---|---|---|
-| Q0 | Measure | What a hosted runner offers | Whether an engine build could fit | 3 cores, 7 GB RAM, about 92 GB free disk, 6 h job cap. A from-source engine build is not attempted here |
-| Q1 | Finding + Proof | Facts from the real engine source at the commit pinned by this SDK, and whether the engine base layer (`fml`) compiles for watchOS with C++20 | Shows how much of the engine already fits watchOS | The build tool has no watchOS target; `embedder.h` has 47 functions with a software renderer; the Apple header gives `TARGET_OS_IPHONE 1` on watchOS, so `fml` treats it as iOS; 48 of 54 sampled `fml` files compile and none fail for an unavailable API (6 undecided for want of `third_party` headers) |
+| Q0 | Measure | What a hosted runner offers | Whether an engine build could fit | 3 cores, 7 GB RAM, about 93 GB free disk; hosted jobs are capped at 6 h and the engine job at 60 min. A from-source engine build is not attempted here |
+| Q1 | Finding + Proof | Facts from the real engine source at the commit pinned by this SDK, and whether the engine base layer (`fml`) compiles for watchOS with C++20 | Shows how much of the engine already fits watchOS | The engine build tool (`tools/gn`) has no watchOS target, although the Dart SDK `tools/gn.py` accepts `watchos` and `watchos_simulator`; `embedder.h` has 47 functions with a software renderer; the Apple header gives `TARGET_OS_IPHONE 1` on watchOS, so `fml` treats it as iOS; 49 of 55 sampled `fml` files compile cleanly and none fail for an unavailable API (6 undecided for want of `third_party` headers) |
 | Q2 | Setup | Gathers official pieces: the desktop embedder library (only `darwin-x64` is published; it is universal x86_64 + arm64), `icudtl.dat`, the iOS engine, and a probe app bundle | Inputs for Q3–Q5 | The artifacts exist and download |
 | Q2s | Setup | A watch simulator boots in this job | Q4 and Q5 run in it | Ready |
 | Q3 | Finding | Gap analysis: which libraries and symbols the official engines import that the watchOS SDK does not provide | Maps what a port must replace | Direct lookups are reliable: the watchOS SDK exports `CAMetalLayer`, `CGBitmapContextCreate` and `CTFontCreateWithName` but not `MTLCreateSystemDefaultDevice` or `IOSurfaceCreate`; 7 libraries are absent. **The per-library missing-symbol totals are not reliable** (the script flags basic `libSystem` symbols such as `_bzero` as missing), so no total is quoted |
 | Q4 | Experiment | Retag the official desktop embedder library as a watchOS Simulator binary and see whether a watchOS process can load it | Finds exactly what stops the real engine code | It loads, after rewriting 8 framework paths, stubbing 7 absent libraries and overlaying 4 CoreVideo symbols; `FlutterEngineRun` and two other API symbols resolve. A retagged macOS binary is not a shippable port |
-| Q5 | Experiment | Run Flutter inside a watchOS process through `embedder.h` with the software renderer, using a host written from scratch; check the rendered pixels | Shows how far the real engine gets | Dart executed (a stripe is green only if `fib(20) == 6765`), text shaped and drew (1,516 glyph pixels) and a frame came through the present callback. The pixel byte order of the callback is RGBA in this engine build, inferred from the pass. *Limits:* a patched debug (JIT) engine in a Mac-hosted Simulator process; it proves nothing about a source build, AOT, a real watch, memory, speed or App Store review |
-| Q6 | Experiment | Interactive loop inside a watchOS process: tap injected via `FlutterEngineSendPointerEvent`, Dart `setState` executed, frame 2 rendered and verified; memory footprint logged | Shows the engine runs an interactive event loop on watchOS | Dart received touch input, executed `setState`, reshaped text to TAP, repainted yellow/cyan stripes and presented frame 2. Resident and virtual memory measured via Mach task info (about 146 MB in debug mode, plus or minus 2 MB). *Limits:* JIT debug engine in the Simulator |
+| Q5 | Experiment | Run Flutter inside a watchOS process through `embedder.h` with the software renderer, using a host written from scratch; check the rendered pixels | Shows how far the real engine gets | Dart executed (a stripe is green only if `fib(20) == 6765`), text shaped and drew (746 bright glyph pixels in the latest run) and a frame came through the present callback. The pixel byte order of the callback is RGBA in this engine build, inferred from the pass. *Limits:* a patched debug (JIT) engine in a Mac-hosted Simulator process; it proves nothing about a source build, AOT, a real watch, memory, speed or App Store review |
+| Q6 | Experiment | Interactive loop inside a watchOS process: tap injected via `FlutterEngineSendPointerEvent`, Dart `setState` executed, frame 2 rendered and verified; memory footprint logged | Shows the engine runs an interactive event loop on watchOS | Dart received touch input, executed `setState`, reshaped text to TAP, repainted yellow/cyan stripes and presented frame 2. Resident and virtual memory measured via Mach task info (about 141–146 MB resident in debug mode). *Limits:* JIT debug engine in the Simulator |
 | Q7 | Experiment | Crown scroll input (`signal_kind=scroll` -> `setState` -> frame 3) and the low-memory hook | Demonstrates rotary event handling and the low-memory embedder hook | The scroll signal reached Dart (`Listener` -> `PointerScrollEvent` -> `setState`), text repainted to CROWN, frame 3 rendered; `FlutterEngineNotifyLowMemoryWarning` succeeded without crashing. *Limits:* synthetic engine signal, no hardware Crown or SwiftUI `.digitalCrownRotation` |
 
 The frames the engine rendered are uploaded as the `engine-frames` artifact (frames 1, 2 and 3).
@@ -169,7 +169,7 @@ watchOS client and fails on its own. E1 is run through `scripts/run_e2e.sh` (ste
 bash scripts/pick_watch_sim.sh                      # P1: look for the line "INFO: watch simulator ... <UDID>"
 export WATCH_UDID=<udid from that line>
 
-# P0 scheme. CI picks it automatically; locally you set it yourself (this mirrors scripts/build_swift.sh):
+# P0 scheme. CI picks it automatically (it resolved to WatchProofs on Xcode 26.6); locally you set it yourself:
 if ( cd swift_proofs && xcodebuild -list 2>/dev/null | grep -q WatchProofs-Package ); then export SCHEME=WatchProofs-Package; else export SCHEME=WatchProofs; fi
 
 bash scripts/build_swift.sh                         # P0 (compile for watchOS)
