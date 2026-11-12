@@ -460,7 +460,7 @@ Latest run: macOS runner, Xcode 26.6, watchOS 26.5 Simulator, Flutter 3.50.0 (de
 | Pixel ratio | Encoding | Bytes/frame | ms/frame | Decode ms/frame |
 |---|---|---|---|---|
 | 1.0 | raw | 191,668 | 0.5–1.9 | 0.0–0.1 |
-| 1.0 | zlib | 1,047 | 0.9–1.9 | 0.8–1.7 |
+| 1.0 | zlib | 1,047 | 0.9–2.3 | 0.8–2.1 |
 | 1.0 | XOR-delta + zlib | 922 | 24.8–42.8 | 24.6–42.5 |
 | 2.0 | raw | 766,660 | 1.5–7.0 | 0.1–0.2 |
 | 2.0 | zlib | 3,935 | 3.2–8.2 | 3.1–7.9 |
