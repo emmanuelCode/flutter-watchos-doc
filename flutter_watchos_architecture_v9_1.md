@@ -461,7 +461,7 @@ Latest run: macOS runner, Xcode 26.6, watchOS 26.5 Simulator, Flutter 3.50.0 (de
 |---|---|---|---|---|
 | 1.0 | raw | 191,668 | 0.5–1.9 | 0.0–0.1 |
 | 1.0 | zlib | 1,047 | 0.9–2.3 | 0.8–2.1 |
-| 1.0 | XOR-delta + zlib | 922 | 24.8–42.8 | 24.6–42.5 |
+| 1.0 | XOR-delta + zlib | 922 | 22.5–42.8 | 22.4–42.5 |
 | 2.0 | raw | 766,660 | 1.5–7.0 | 0.1–0.2 |
 | 2.0 | zlib | 3,935 | 3.2–8.2 | 3.1–7.9 |
 | 2.0 | XOR-delta + zlib | 3,495 | 90.9–169.8 | 90.7–169.5 |
@@ -496,7 +496,7 @@ This concerns Open Question 9 and is a starting point for anyone building a full
 
 **What this does not show.** It is a normal Mac process tagged as a watchOS Simulator binary: Mac CPU and memory, and a debug engine that JIT-compiles Dart (which a real watch will not allow). The stubs are zeroed data and unused Metal code never ran. It proves nothing about a source build, AOT, device memory, speed or App Review, and the patched binary must never be distributed.
 
-**Facts from the engine source (pinned commit `371f77202a…`, Dart 3.14.0):**
+**Facts from the engine source (pinned commit `371f77202a…`, Dart 3.14.0; build-tool target list and gn.py options established on engine `89c39edf…`, pending re-verification in CI on `371f77202a…`):**
 - The build tool's target OS list is `android, ios, mac, linux, fuchsia, wasm, win, qnx`: no watchOS, and `--simulator` is iOS-only.
 - `qnx` is the precedent for a new OS: arm64 only, Skia GPU backends off (software-only). The embedder's software surface is on by default.
 - `fml/build_config.h` treats watchOS as iOS (`TARGET_OS_IPHONE` is 1 there). 49 of 55 sampled `fml` files compile for watchOS with C++20; the other 6 stopped on `third_party` headers outside the sample.
@@ -947,7 +947,7 @@ struct WatchCanvasView: View {
 
 ### v9.0: November 2026 (Wearables Decoupling Strategy, Screen Profiles & Review Hardening)
 - **Architectural Horizon:** Added decoupled wearable UI strategy (`watchos_ui` vs. `wearos_ui`) modeled after Flutter's `cupertino` vs. `material` decoupling, while identifying wearos_ui as out of scope for the watchOS embedder.
-- **Refreshed Validation Numbers:** Widened process memory range to 140.9–148.3 MB (accounting for Q7 frame 2 reading 148.27 MB), updated P6 first-frame latency range to 120–232 ms, and documented toolchain differences across jobs (Dart 3.13.7 for dev-loop vs. Dart 3.14.0 for engine checks).
+- **Refreshed Validation Numbers:** Widened process memory range to 145.6–148.3 MB (accounting for Q7 frame 2 reading 148.27 MB), updated P6 first-frame latency range to 120–232 ms, and documented toolchain differences across jobs (Dart 3.13.7 for dev-loop vs. Dart 3.14.0 for engine checks).
 - **Modern Screen Profiles:** Added Apple Watch Series 10/11 display dimensions (42 mm 187×223 pt, 46 mm 208×248 pt) and noted test-profile resolution gap against the 46 mm CI runner.
 - **Risk Assessment:** Added Skia CPU deprecation and Impeller's lack of a software rasterizer as a primary risk for Path A.
 - **Compliance & Terminology:** Clarified engine provenance ("official Flutter sources plus an open patch set"), removed desktop IOSurface reference, and added missing sections to Table of Contents.
