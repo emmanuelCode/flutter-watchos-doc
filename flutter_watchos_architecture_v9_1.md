@@ -455,7 +455,7 @@ Latest run: macOS runner, Xcode 26.6, watchOS 26.5 Simulator, Flutter 3.50.0 (de
 | E1 | **Whole dev loop, no stand-ins:** on connect `captureNow()` sent frame 0 (view showed red); a tap at the watch-screen centre (99, 121) was replayed; frame 1 arrived (view showed green) |
 | Q0–Q7 | Engine experiment, see [Engine on watchOS](#engine-on-watchos-findings-and-proposed-route) |
 
-**Sustained transport (P9):** 100 frames per configuration, ranges across CI runs (latest included), loopback, debug build.
+**Sustained transport (P9):** 100 frames per configuration, ranges across CI runs (including run 43124350576 for the 2.3 ms zlib upper bound), loopback, debug build.
 
 | Pixel ratio | Encoding | Bytes/frame | ms/frame | Decode ms/frame |
 |---|---|---|---|---|
@@ -496,7 +496,7 @@ This concerns Open Question 9 and is a starting point for anyone building a full
 
 **What this does not show.** It is a normal Mac process tagged as a watchOS Simulator binary: Mac CPU and memory, and a debug engine that JIT-compiles Dart (which a real watch will not allow). The stubs are zeroed data and unused Metal code never ran. It proves nothing about a source build, AOT, device memory, speed or App Review, and the patched binary must never be distributed.
 
-**Facts from the engine source (pinned commit `371f77202a…`, Dart 3.14.0; build-tool target list and gn.py options established on engine `89c39edf…`, pending re-verification in CI on `371f77202a…`):**
+**Facts from the engine source (pinned commit `371f77202a…`, Dart 3.14.0; build-tool target list, qnx precedent, and gn.py options established on engine `89c39edf…`, pending re-verification in CI on `371f77202a…`):**
 - The build tool's target OS list is `android, ios, mac, linux, fuchsia, wasm, win, qnx`: no watchOS, and `--simulator` is iOS-only.
 - `qnx` is the precedent for a new OS: arm64 only, Skia GPU backends off (software-only). The embedder's software surface is on by default.
 - `fml/build_config.h` treats watchOS as iOS (`TARGET_OS_IPHONE` is 1 there). 49 of 55 sampled `fml` files compile for watchOS with C++20; the other 6 stopped on `third_party` headers outside the sample.
@@ -967,7 +967,7 @@ struct WatchCanvasView: View {
 - Removed LaTeX markup (`$\to$`).
 - **Compliance:** added a short Compliance Principles section (a design-scope statement, not a compliance review). The Metal-overlay route reported for flutter-watchos is recorded as an unassessed risk (Open Question 12) and not adopted; a public-API audit was added to Phase 3.
 - **Related Work:** rewritten from flutterwatch.dev, the August 2026 article and the pub.dev pages. The site confirms App Store apps, so that claim stands (sourced to the site); status updated from "closed beta" to the site's current public sign-in model. Added its reported Impeller-on-Metal route (consistent with check Q3: the SDK lacks `MTLCreateSystemDefaultDevice`) as new Open Question 12 and a note in Constraints and Mode 2.
-- **Numbers refreshed from the latest CI sheet:** memory is shown as a range across runs (140.9–148.3 MB, fluctuating ±2 MB; the Q7 low-memory call is logged), P6 first-frame time 120–232 ms, bright-glyph counts shown as per-run ranges, and P9 raw/1.0 encode time 0.5–1.9 ms (the previous upper bound, 1.2, was exceeded).
+- **Numbers refreshed from the latest CI sheet:** memory is shown as a range across runs (145.6–148.3 MB, fluctuating ±2 MB; the Q7 low-memory call is logged), P6 first-frame time 120–232 ms, bright-glyph counts shown as per-run ranges, and P9 raw/1.0 encode time 0.5–1.9 ms (the previous upper bound, 1.2, was exceeded).
 
 **Condensation (~1,670 → ~930 lines, about 250 of them verbatim tested code)**
 - Removed the protobuf `DisplayList` schema, the untested `WatchCanvas` interceptor (A.4) and display-list renderer (A.5), the FFI bridge example and the swiftgen history, all untested or superseded research. Removed the Antigravity agent-strategy and tooling-stack sections and the "present the MVP" marketing steps (author workflow, not architecture).
