@@ -22,7 +22,7 @@ Fix order: **F0 → P1 → P0 → everything else.** A failure in P1 or P0 block
 instead of failing for confusing reasons. Full logs are attached to the run as `logs-*` artifacts, but only when
 something fails.
 
-**Latest result:** 34 of 34 checks passed (commit d3652cd, run 43134734519; runner image macos26 20261102.0473.1, macOS 26.7.2,
+**Latest result:** 34 of 34 checks passed (commit ba93b27, run 43286738502; runner image macos26 20261102.0473.1, macOS 26.7.2,
 Xcode 26.6, watchOS 26.5 Simulator, Flutter 3.50.0, Dart 3.14.0 on all jobs).
 
 ## Test catalog
