@@ -344,7 +344,7 @@ struct WatchFrameView: View {
 }
 ```
 
-The frame is stretched to fill the view (verified in off-screen SwiftUI render tests), so it fits whatever `pixelRatio` was captured. That is only correct when the captured boundary has the same aspect ratio as the view: size the boundary to the watch's logical screen. Redraw-on-publish was verified with an off-screen `ImageRenderer`, not yet on a live screen.
+The frame is stretched to fill the view (verified in off-screen SwiftUI render tests), so it fits whatever `pixelRatio` was captured. That is only correct when the captured boundary has the same aspect ratio as the view: size the boundary to the watch's logical screen. Updated pixels on publish were tested with an off-screen `ImageRenderer` (logging rather than asserting `invalidated`), not yet on a live screen.
 
 > Avoid `TimelineView(.animation)` here: it ticks at display rate even when nothing changed, a real battery cost. Add a `TimelineView` only for continuous local animation.
 
@@ -590,7 +590,7 @@ All of this is taken from those public pages. The site describes the profile and
 |---|---|---|
 | Runtime on watch | Dev: frame viewer · Prod: engine on device (unverified) | Real engine on the watch, AOT for device builds |
 | Rendering | Engine software / custom-compositor path → SwiftUI (software path tested only in a patched Simulator process) | Impeller on Metal via an SDK overlay; CPU fallback |
-| Widgets | Real framework + `watchos_ui` constraint layer | Standard Flutter widgets (Cupertino works) |
+| Widgets | Real framework + `watchos_ui` constraint layer | Standard Flutter widgets (Cupertino supported, per its docs) |
 | Dev loop | Mac-hosted VM driving a watch (hypothesis) | Simulator hot reload; profile builds on device, no on-device hot reload |
 | Constraint enforcement | Built-in validator (proposed) | No HIG validator mentioned on its site |
 | Status | Draft design, partly validated in CI | Public site and docs; GitHub sign-in for device/release engines; apps listed on the App Store |
