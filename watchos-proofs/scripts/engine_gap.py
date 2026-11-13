@@ -56,23 +56,23 @@ def _parse_tbd_v5_lib(lib, syms, installs, platform=None):
         targets = " ".join(str(t).lower() for t in exp.get("targets", []))
         if platform and targets and any(p in targets for p in PLATFORMS) and platform not in targets:
             continue
-        data = exp.get("data", exp)
-        if not isinstance(data, dict):
-            continue
-        for key in ("global", "weak", "thread_local"):
-            for s in data.get(key, []):
-                if isinstance(s, str):
-                    syms.add(s)
-        for cls in data.get("objc_class", []):
-            if isinstance(cls, str):
-                syms.add("_OBJC_CLASS_$_" + cls)
-                syms.add("_OBJC_METACLASS_$_" + cls)
-        for eh in data.get("objc_eh_type", []):
-            if isinstance(eh, str):
-                syms.add("_OBJC_EHTYPE_$_" + eh)
-        for ivar in data.get("objc_ivar", []):
-            if isinstance(ivar, str):
-                syms.add("_OBJC_IVAR_$_" + ivar)
+        for section in (exp.get("text"), exp.get("data"), exp.get("thread_local"), exp):
+            if not isinstance(section, dict):
+                continue
+            for key in ("global", "weak", "thread_local", "symbols"):
+                for s in section.get(key, []):
+                    if isinstance(s, str):
+                        syms.add(s)
+            for cls in section.get("objc_class", []):
+                if isinstance(cls, str):
+                    syms.add("_OBJC_CLASS_$_" + cls)
+                    syms.add("_OBJC_METACLASS_$_" + cls)
+            for eh in section.get("objc_eh_type", []):
+                if isinstance(eh, str):
+                    syms.add("_OBJC_EHTYPE_$_" + eh)
+            for ivar in section.get("objc_ivar", []):
+                if isinstance(ivar, str):
+                    syms.add("_OBJC_IVAR_$_" + ivar)
 
 
 def parse_tbd(text, syms, installs, platform=None):
