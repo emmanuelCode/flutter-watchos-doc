@@ -2,7 +2,11 @@ import SwiftUI
 import XCTest
 
 func makeCGImage(rgba: [UInt8], width: Int, height: Int) -> CGImage {
-    let provider = CGDataProvider(data: Data(rgba) as CFData)!
+    makeCGImage(rgbaData: Data(rgba), width: width, height: height)
+}
+
+func makeCGImage(rgbaData: Data, width: Int, height: Int) -> CGImage {
+    let provider = CGDataProvider(data: rgbaData as CFData)!
     return CGImage(
         width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
         space: CGColorSpaceCreateDeviceRGB(),

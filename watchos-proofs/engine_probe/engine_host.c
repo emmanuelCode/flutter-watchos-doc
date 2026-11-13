@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "embedder.h"
@@ -115,6 +116,14 @@ typedef FlutterEngineResult (*RunFn)(size_t, const FlutterRendererConfig*, const
 typedef FlutterEngineResult (*MetricsFn)(FlutterEngine, const FlutterWindowMetricsEvent*);
 typedef FlutterEngineResult (*PointerFn)(FlutterEngine, const FlutterPointerEvent*, size_t);
 typedef FlutterEngineResult (*LowMemFn)(FlutterEngine);
+typedef uint64_t (*CurrentTimeFn)(void);
+
+static size_t monotonic_us(CurrentTimeFn get_time) {
+  if (get_time) {
+    return (size_t)(get_time() / 1000ULL); // FlutterEngineGetCurrentTime returns nanoseconds
+  }
+  return (size_t)(clock_gettime_nsec_np(CLOCK_UPTIME_RAW) / 1000ULL);
+}
 
 int main(int argc, char** argv) {
   if (argc < 8) { fprintf(stderr, "usage: engine_host lib assets icu out width height seconds [out2] [out3]\n"); return 64; }
@@ -130,6 +139,7 @@ int main(int argc, char** argv) {
   MetricsFn metrics = (MetricsFn)dlsym(h, "FlutterEngineSendWindowMetricsEvent");
   PointerFn send_pointer = (PointerFn)dlsym(h, "FlutterEngineSendPointerEvent");
   LowMemFn notify_low_mem = (LowMemFn)dlsym(h, "FlutterEngineNotifyLowMemoryWarning");
+  CurrentTimeFn get_current_time = (CurrentTimeFn)dlsym(h, "FlutterEngineGetCurrentTime");
 
   if (!run || !metrics) { fprintf(stderr, "embedder API symbols missing\n"); return 3; }
 
@@ -175,6 +185,7 @@ int main(int argc, char** argv) {
     pthread_mutex_lock(&g_lock);
     if (!g_frame) { pthread_mutex_unlock(&g_lock); fprintf(stderr, "NO FRAME within %d s\n", seconds); return 5; }
     FILE* f = fopen(out, "wb");
+    if (!f) { pthread_mutex_unlock(&g_lock); perror("fopen out"); return 9; }
     uint32_t hdr[3] = {(uint32_t)(g_rowBytes / 4), (uint32_t)g_rows, (uint32_t)g_rowBytes};
     fwrite(hdr, sizeof hdr, 1, f);
     fwrite(g_frame, 1, g_len, f);
@@ -196,6 +207,7 @@ int main(int argc, char** argv) {
   pthread_mutex_lock(&g_lock);
   if (!g_frame) { pthread_mutex_unlock(&g_lock); fprintf(stderr, "NO INITIAL FRAME\n"); return 5; }
   FILE* f1 = fopen(out, "wb");
+  if (!f1) { pthread_mutex_unlock(&g_lock); perror("fopen out"); return 9; }
   uint32_t hdr1[3] = {(uint32_t)(g_rowBytes / 4), (uint32_t)g_rows, (uint32_t)g_rowBytes};
   fwrite(hdr1, sizeof hdr1, 1, f1);
   fwrite(g_frame, 1, g_len, f1);
@@ -210,7 +222,7 @@ int main(int argc, char** argv) {
   atomic_store(&g_tap_injected, true);
   double tap_x = width / 2.0;
   double tap_y = height / 2.0;
-  size_t now_us = (size_t)(CFAbsoluteTimeGetCurrent() * 1e6);
+  size_t now_us = monotonic_us(get_current_time);
 
   FlutterPointerEvent pev;
   memset(&pev, 0, sizeof pev);
@@ -222,7 +234,7 @@ int main(int argc, char** argv) {
   send_pointer(engine, &pev, 1);
   CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.05, false);
 
-  now_us = (size_t)(CFAbsoluteTimeGetCurrent() * 1e6);
+  now_us = monotonic_us(get_current_time);
   memset(&pev, 0, sizeof pev);
   pev.struct_size = sizeof(FlutterPointerEvent);
   pev.phase = kDown;
@@ -232,7 +244,7 @@ int main(int argc, char** argv) {
   send_pointer(engine, &pev, 1);
   CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.05, false);
 
-  now_us = (size_t)(CFAbsoluteTimeGetCurrent() * 1e6);
+  now_us = monotonic_us(get_current_time);
   memset(&pev, 0, sizeof pev);
   pev.struct_size = sizeof(FlutterPointerEvent);
   pev.phase = kUp;
@@ -254,6 +266,7 @@ int main(int argc, char** argv) {
   pthread_mutex_lock(&g_lock);
   if (!g_frame_post_tap) { pthread_mutex_unlock(&g_lock); fprintf(stderr, "NO POST-TAP FRAME\n"); return 7; }
   FILE* f2 = fopen(out2, "wb");
+  if (!f2) { pthread_mutex_unlock(&g_lock); perror("fopen out2"); return 9; }
   uint32_t hdr2[3] = {(uint32_t)(g_rowBytes_post_tap / 4), (uint32_t)g_rows_post_tap, (uint32_t)g_rowBytes_post_tap};
   fwrite(hdr2, sizeof hdr2, 1, f2);
   fwrite(g_frame_post_tap, 1, g_len_post_tap, f2);
@@ -268,7 +281,7 @@ int main(int argc, char** argv) {
 
   // Phase 4: Inject Digital Crown Scroll Event (signal_kind = kFlutterPointerSignalKindScroll)
   atomic_store(&g_crown_injected, true);
-  now_us = (size_t)(CFAbsoluteTimeGetCurrent() * 1e6);
+  now_us = monotonic_us(get_current_time);
   memset(&pev, 0, sizeof pev);
   pev.struct_size = sizeof(FlutterPointerEvent);
   pev.phase = kHover;
@@ -293,6 +306,7 @@ int main(int argc, char** argv) {
   pthread_mutex_lock(&g_lock);
   if (!g_frame_post_crown) { pthread_mutex_unlock(&g_lock); fprintf(stderr, "NO POST-CROWN FRAME\n"); return 8; }
   FILE* f3 = fopen(out3, "wb");
+  if (!f3) { pthread_mutex_unlock(&g_lock); perror("fopen out3"); return 9; }
   uint32_t hdr3[3] = {(uint32_t)(g_rowBytes_post_crown / 4), (uint32_t)g_rows_post_crown, (uint32_t)g_rowBytes_post_crown};
   fwrite(hdr3, sizeof hdr3, 1, f3);
   fwrite(g_frame_post_crown, 1, g_len_post_crown, f3);

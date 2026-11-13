@@ -185,6 +185,7 @@ final class WatchRenderStore: ObservableObject {
     @Published var frameTick: UInt64 = 0
 
     private let lock: OSAllocatedUnfairLock<[Slab]>   // watchOS 9+
+    private let tickFlag = OSAllocatedUnfairLock(initialState: false)
 
     init(slabBytes: Int) {
         var slabs: [Slab] = []
@@ -195,6 +196,25 @@ final class WatchRenderStore: ObservableObject {
             slabs.append(Slab(base: p!))
         }
         lock = OSAllocatedUnfairLock(initialState: slabs)
+    }
+
+    deinit {
+        lock.withLock { slabs in
+            for s in slabs { free(s.base) }
+        }
+    }
+
+    func scheduleTickIfNeeded() {
+        let shouldDispatch = tickFlag.withLock { pending -> Bool in
+            if pending { return false }
+            pending = true
+            return true
+        }
+        guard shouldDispatch else { return }
+        DispatchQueue.main.async {
+            self.tickFlag.withLock { $0 = false }
+            self.frameTick &+= 1
+        }
     }
 
     func base(_ i: Int) -> UnsafeMutableRawPointer { lock.withLock { $0[i].base } }
@@ -245,7 +265,7 @@ public func watchAbandonSlab(_ i: Int32) { sharedRenderStore.abandon(Int(i)) }
 @_cdecl("watch_submit_slab")
 public func watchSubmitSlab(_ i: Int32, _ byteCount: Int32) {
     sharedRenderStore.submit(Int(i), byteCount: Int(byteCount))
-    DispatchQueue.main.async { sharedRenderStore.frameTick &+= 1 }   // non-blocking: Dart never waits
+    sharedRenderStore.scheduleTickIfNeeded()   // non-blocking & coalesced: Dart never waits
 }
 
 // SwiftUI Canvas — reads raw bytes directly during the native draw pass.

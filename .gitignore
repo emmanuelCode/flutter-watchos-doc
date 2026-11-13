@@ -1,0 +1,5 @@
+watchos-proofs/flutter_proofs/build/
+watchos-proofs/flutter_proofs/.dart_tool/
+**/__pycache__/
+*.pyc
+*.dill

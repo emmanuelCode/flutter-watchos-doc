@@ -17,10 +17,13 @@ final class S6_CanvasTickRedrawTests: XCTestCase {
         var invalidated = false
         let sub = renderer.objectWillChange.sink { invalidated = true }
         S5_RenderStoreCanvasTests.submitRect(argb: 0xFF0000FF)   // frame 2 (blue); tick bump happens async on main
-        try await Task.sleep(nanoseconds: 500_000_000)
+        for _ in 0..<40 where !invalidated {
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
         sub.cancel()
 
         proofLog("S6: renderer reported invalidation after submit = \(invalidated)")
+        XCTAssertTrue(invalidated, "ImageRenderer did not report invalidation after watchSubmitSlab")
         assertNear(pixel(try pixels(renderer), 4, 4), [0, 0, 255, 255],
                    tol: 4)
     }

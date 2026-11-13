@@ -1,5 +1,10 @@
 # watchOS proofs — one tiny test per untested idea
 
+> **TL;DR — What is actually proven vs. unproven:**
+> - **Proven (Simulator only):** SwiftUI `Canvas` draws RGBA frames, `RepaintBoundary.toImage` captures headless frames, `ws://` loopback streams frames and returns taps (`E1`), and a *retagged* macOS debug JIT engine runs Dart and handles synthetic tap/scroll events in a Simulator process (`Q4`–`Q7`).
+> - **Not proven:** Any from-source or AOT watchOS engine build, real watch memory/jetsam/battery, real Wi-Fi/BLE transport (Mode 1b), `watchos_ui` widgets (not yet built), or App Store acceptance.
+
+
 Each check in this folder answers one question about running a Flutter app on Apple Watch. The checks run
 in CI (GitHub Actions, macOS runner, watchOS Simulator) and most of them can also be run on your own Mac.
 

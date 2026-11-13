@@ -17,11 +17,11 @@ final class E1_EndToEndTests: XCTestCase {
             UInt32(littleEndian: d.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: o, as: UInt32.self) })
         }
         let w = Int(u32(0)), h = Int(u32(4)), id = u32(8)
-        let rgba = [UInt8](d.subdata(in: 12..<d.count))
+        let rgba = d.subdata(in: 12..<d.count)
         guard rgba.count == w * h * 4 else {
             throw NSError(domain: "E1", code: 2, userInfo: [NSLocalizedDescriptionKey: "frame size mismatch: \(rgba.count) bytes for \(w)x\(h)"])
         }
-        return (id, makeCGImage(rgba: rgba, width: w, height: h))
+        return (id, makeCGImage(rgbaData: rgba, width: w, height: h))
     }
 
     private func centreIsGreen(_ image: CGImage) -> Bool {
@@ -52,8 +52,14 @@ final class E1_EndToEndTests: XCTestCase {
         let next = try XCTUnwrap(second, "no green frame arrived after the tap")
 
         // 3) Publish it; the same live view must now show GREEN.
+        var invalidated = false
+        let sub = renderer.objectWillChange.sink { invalidated = true }
         store.latest = next.image
-        try await Task.sleep(nanoseconds: 400_000_000)
+        for _ in 0..<40 where !invalidated {
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        sub.cancel()
+        XCTAssertTrue(invalidated, "live WatchFrameView renderer did not invalidate on frame 2")
         assertNear(pixel(try pixels(renderer), 99, 121), [0, 255, 0, 255])
 
         proofLog("E1: frame \(first.id) (red) -> tap(99,121) -> frame \(next.id) (green); view showed both")

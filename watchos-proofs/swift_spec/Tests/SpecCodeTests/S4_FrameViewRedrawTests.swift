@@ -18,10 +18,13 @@ final class S4_FrameViewRedrawTests: XCTestCase {
         var invalidated = false
         let sub = renderer.objectWillChange.sink { invalidated = true }
         store.latest = solid(0, 255, 0, width: 4, height: 4)       // publish frame 2
-        try await Task.sleep(nanoseconds: 400_000_000)             // let SwiftUI process the invalidation
+        for _ in 0..<40 where !invalidated {
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
         sub.cancel()
 
         proofLog("S4: renderer reported invalidation = \(invalidated)")
+        XCTAssertTrue(invalidated, "ImageRenderer did not report invalidation after publishing a new frame")
         assertNear(pixel(try pixels(renderer), 2, 2), [0, 255, 0, 255])
     }
 }

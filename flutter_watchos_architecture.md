@@ -217,9 +217,9 @@ class WatchFrameStreamer {
 
   /// Call when a watch (re)connects. An idle app produces no frames, so without this a
   /// newly connected watch would show nothing until something on screen changes.
-  Future<void> captureNow() => _capture();
+  Future<void> captureNow() => _capture(retryIfNeedsPaint: true);
 
-  Future<void> _capture() async {
+  Future<void> _capture({bool retryIfNeedsPaint = false}) async {
     if (_stopped) return;
     if (_captureInFlight) {
       _capturePending = true; // coalesce so the final frame is never dropped
@@ -227,23 +227,33 @@ class WatchFrameStreamer {
     }
     final boundary = boundaryKey.currentContext?.findRenderObject()
         as RenderRepaintBoundary?;
-    if (boundary == null || boundary.debugNeedsPaint) return;
+    if (boundary == null) return;
+    if (boundary.debugNeedsPaint) {
+      if (retryIfNeedsPaint && !_stopped) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _capture());
+        WidgetsBinding.instance.scheduleFrame();
+      }
+      return;
+    }
 
     _captureInFlight = true;
     _capturePending = false;
+    ui.Image? image;
     try {
-      final ui.Image image = await boundary.toImage(pixelRatio: pixelRatio);
+      image = await boundary.toImage(pixelRatio: pixelRatio);
       final ByteData? data =
           await image.toByteData(format: ui.ImageByteFormat.rawRgba);
       if (data != null && !_stopped) {
         sink(data.buffer.asUint8List(), image.width, image.height, _frameId++);
       }
-      image.dispose();
     } finally {
+      image?.dispose();
       _captureInFlight = false;
       if (_capturePending && !_stopped) {
         _capturePending = false;
-        unawaited(_capture());
+        unawaited(_capture().catchError((Object e, StackTrace st) {
+          FlutterError.reportError(FlutterErrorDetails(exception: e, stack: st));
+        }));
       }
     }
   }
@@ -255,13 +265,24 @@ import 'package:flutter/gestures.dart';
 
 /// Replays watch input as Flutter pointer events.
 class WatchInputInjector {
+  final Stopwatch _clock = Stopwatch()..start();
   int _pointer = 1;
 
   void tap(Offset logicalPosition) {
     final binding = GestureBinding.instance;
     final id = _pointer++;
-    binding.handlePointerEvent(PointerDownEvent(pointer: id, position: logicalPosition));
-    binding.handlePointerEvent(PointerUpEvent(pointer: id, position: logicalPosition));
+    final downTs = Duration(microseconds: _clock.elapsedMicroseconds);
+    binding.handlePointerEvent(PointerDownEvent(
+      pointer: id,
+      position: logicalPosition,
+      timeStamp: downTs,
+    ));
+    final upTs = Duration(microseconds: _clock.elapsedMicroseconds);
+    binding.handlePointerEvent(PointerUpEvent(
+      pointer: id,
+      position: logicalPosition,
+      timeStamp: upTs,
+    ));
   }
 
   // Crown rotation → scroll input. Mapping defined in Phase 0.
@@ -326,6 +347,7 @@ import SwiftUI
 
 // Latest frame received over the WebSocket, already decoded to a CGImage
 // (wrap the RGBA bytes in a CGDataProvider and build the CGImage from it).
+@MainActor
 final class WatchFrameStore: ObservableObject {
     @Published var latest: CGImage? = nil
 }
@@ -545,7 +567,7 @@ This concerns Open Question 9 and is a starting point for anyone building a full
 The highest-risk unknowns (Apple compliance and on-device AOT runtime footprint) are placed up front as **Gates 0a–0c** before desktop tooling investment.
 
 **Gate 0a: Device floor & HIG verification**
-- [x] Lock the product floor to watchOS 27+ (SE 3, Series 9+, Ultra 2+; `arm64`-only per toolchains)
+- [ ] Lock and validate the product floor at watchOS 27+ (SE 3, Series 9+, Ultra 2+; `arm64`-only per toolchains — decision made, but CI currently targets `.watchOS(.v10)` / watchOS 26.5 Simulator SDK)
 - [ ] Verify HIG numbers (touch targets, font bounds, SE 3 `40/44 mm` dimensions) against current Apple HIG and cite sources
 
 **Gate 0b: GPU / Metal compliance check (Open Question 12)** *(Needs: paid Apple Developer account + signing — first ask for contributors)*
