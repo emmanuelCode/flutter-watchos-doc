@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 const _red = Color(0xFFFF0000);
 const _green = Color(0xFF00FF00);
+const _blue = Color(0xFF0000FF);
 
 class _Frame {
   _Frame(this.rgba, this.w, this.h, this.id);
@@ -87,5 +88,97 @@ void main() {
 
     // ignore: avoid_print
     print('S1: ${frames.length} frames captured at ${frames.last.w}x${frames.last.h}');
+  });
+
+  testWidgets('stop() halts frame capture', (tester) async {
+    final key = GlobalKey();
+    var taps = 0;
+    final frames = <_Frame>[];
+
+    Future<void> settle() async {
+      for (var i = 0; i < 6; i++) {
+        await tester.pump();
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+      }
+    }
+
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: RepaintBoundary(
+          key: key,
+          child: StatefulBuilder(
+            builder: (context, setState) => GestureDetector(
+              onTap: () => setState(() => taps++),
+              child: ColoredBox(color: taps == 0 ? _red : _green, child: const SizedBox.expand()),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final streamer = WatchFrameStreamer(
+      boundaryKey: key,
+      sink: (rgba, w, h, id) => frames.add(_Frame(Uint8List.fromList(rgba), w, h, id)),
+    );
+    streamer.start();
+    tester.binding.scheduleFrame();
+    await settle();
+    expect(frames, isNotEmpty);
+
+    streamer.stop();
+    final countAtStop = frames.length;
+
+    WatchInputInjector().tap(const Offset(400, 300));
+    await settle();
+    expect(taps, 1);
+    expect(frames.length, countAtStop, reason: 'streamer emitted a frame after stop()');
+  });
+
+  testWidgets('coalesces invalidation that occurs while capture is in flight', (tester) async {
+    final key = GlobalKey();
+    var taps = 0;
+    final frames = <_Frame>[];
+
+    Future<void> settle() async {
+      for (var i = 0; i < 6; i++) {
+        await tester.pump();
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+      }
+    }
+
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: RepaintBoundary(
+          key: key,
+          child: StatefulBuilder(
+            builder: (context, setState) => GestureDetector(
+              onTap: () => setState(() => taps++),
+              child: ColoredBox(color: taps == 0 ? _red : _blue, child: const SizedBox.expand()),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final streamer = WatchFrameStreamer(
+      boundaryKey: key,
+      sink: (rgba, w, h, id) => frames.add(_Frame(Uint8List.fromList(rgba), w, h, id)),
+    );
+    streamer.start();
+    tester.binding.scheduleFrame();
+
+    // First pump starts _capture() for the red frame (_captureInFlight becomes true while toImage awaits real async).
+    await tester.pump();
+
+    // Trigger a state change and pump immediately before runAsync lets the first toImage() resolve.
+    WatchInputInjector().tap(const Offset(400, 300));
+    await tester.pump();
+
+    await settle();
+    expect(taps, 1);
+    expect(frames.length, greaterThanOrEqualTo(2), reason: 'mid-capture invalidation was dropped');
+    expect(frames.last.centre, [0, 0, 255, 255], reason: 'final blue frame was dropped while capture was in flight');
   });
 }
