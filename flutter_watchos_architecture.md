@@ -11,7 +11,7 @@
 ---
 
 ## Contents
-1. [Vision](#vision) · 2. [Constraints](#core-constraints) · 3. [Compliance](#compliance-principles) · 4. [Architecture decision](#architecture-decision) · 5. [`watchos_ui`](#the-watchos_ui-package) · 6. [Two modes](#two-mode-architecture) · 7. [Frame streamer](#the-frame-streamer-dart-side) · 8. [Debug interceptor](#the-debug-interceptor) · 9. [Watch renderer](#the-swiftui-renderer-watch-side) · 10. [Events & haptics](#events--haptics) · 11. [Power & lifecycle](#power--lifecycle-rules-proposed) · 12. [MVP](#mvp) · 13. [Validation](#validation) · 14. [Engine on watchOS](#engine-on-watchos-findings-and-proposed-route) · 15. [Open questions](#open-questions) · 16. [Phases](#build-phases) · 17. [Related work](#related-work) · [Resolved decisions](#resolved-design-decisions) · [References](#references)
+1. [Vision](#vision) · 2. [Constraints](#core-constraints) · 3. [Compliance](#compliance-principles) · 4. [Architecture decision](#architecture-decision) · 5. [`watchos_ui`](#the-watchos_ui-package) · 6. [Two modes](#two-mode-architecture) · 7. [Frame streamer](#the-frame-streamer-dart-side) · 8. [Debug interceptor](#the-debug-interceptor) · 9. [Watch renderer](#the-swiftui-renderer-watch-side) · 10. [Events & haptics](#events--haptics) · 11. [Power & lifecycle](#power--lifecycle-rules-proposed) · 12. [Platform gaps](#platform-gaps--scope) · 13. [MVP](#mvp) · 14. [Validation](#validation) · 15. [Engine on watchOS](#engine-on-watchos-findings-and-proposed-route) · 16. [Open questions](#open-questions) · 17. [Phases](#build-phases) · 18. [Related work](#related-work) · [Resolved decisions](#resolved-design-decisions) · [References](#references)
 
 ---
 
@@ -380,6 +380,18 @@ Rules for Mode 2 (and the viewer in Mode 1). **None is implemented or measured y
 
 ---
 
+## Platform Gaps & Scope
+
+Everything in this section is **unbuilt and unverified on physical hardware** unless explicitly noted as verified by Apple documentation.
+
+- **Local network & ATS (Mode 1b):** Per Apple TN3179 (*Understanding local network privacy*), watchOS does not enforce a Local Network Privacy prompt (**verified**). However, **`NSAllowsLocalNetworking` availability on watchOS is unverified** (Apple's documentation lists iOS, iPadOS, macOS, and visionOS, with no watchOS entry). Because Mode 1b is dev-only and never submitted, a debug-only ATS exception may be needed, and its behavior on a real watch is **untested**—making HTTP-on-LAN riskier than Simulator loopback.
+- **Accessibility (Phase 3, unbuilt / unverified):** Rendering pixels to SwiftUI `Canvas` hides the Flutter widget tree from VoiceOver and Dynamic Type. Production requires forwarding `FlutterEngineUpdateSemanticsCallback` to SwiftUI `.accessibilityChildren` and supporting opt-in Dynamic Type scaling (reconciling `WatchText`'s provisional 14–34 pt clamp).
+- **Text input (Phase 3, unbuilt / unverified):** Apple Watch text entry relies on dictation, Scribble, and system sheets (`WKTextInputController` / SwiftUI `TextField`), requiring a platform-channel bridge.
+- **Out of scope:** Watch faces and **WidgetKit complications** (timeline extensions cannot host a persistent Flutter engine and remain native SwiftUI).
+- **App Store packaging (Phase 5, unverified):** Standard Xcode Watch-only targets configure `WKWatchOnly` and `WKApplication`. Custom CLI packaging of a standalone watch-only `.watchapp` nested inside an iOS stub container (`ITSWatchOnlyContainer` and `LSApplicationLaunchProhibited`, observed in developer threads and community tooling) is **unverified** against Apple documentation and untested with a signed upload.
+
+---
+
 ## MVP
 
 > **Goal:** a measured demonstration of a Flutter-authored `WatchText` and `WatchButton` on a watch, driven by Dart with hot reload, published with honest numbers (including unfavourable ones). It is not a framework release. Other toolchains now target this platform (see [Related Work](#related-work)), so the contribution is the *measured* pixel-stream approach and its trade-offs.
@@ -530,40 +542,42 @@ This concerns Open Question 9 and is a starting point for anyone building a full
 
 ## Build Phases
 
-**Phase 0: `watchos_ui` specification**
-- [ ] Full widget catalog and `WatchConstraintProfile` for all five screen sizes (41, 42, 45, 46, 49 mm)
-- [ ] Verify HIG numbers against the current HIG and cite sources
-- [x] Decide the device floor (watchOS 27+ / SE 3, Series 9+, Ultra 2+; verify SE 3 40/44 mm HIG specs)
+The highest-risk unknowns (Apple compliance and on-device AOT runtime footprint) are placed up front as **Gates 0a–0c** before desktop tooling investment.
+
+**Gate 0a: Device floor & HIG verification**
+- [x] Lock the product floor to watchOS 27+ (SE 3, Series 9+, Ultra 2+; `arm64`-only per toolchains)
+- [ ] Verify HIG numbers (touch targets, font bounds, SE 3 `40/44 mm` dimensions) against current Apple HIG and cite sources
+
+**Gate 0b: GPU / Metal compliance check (Open Question 12)** *(Needs: paid Apple Developer account + signing — first ask for contributors)*
+- [ ] Archive and run App Store Connect / TestFlight validation on a `SpriteView` / `SKMutableTexture` target vs. a Metal-linked target
+
+**Gate 0c: On-device runtime & memory spike (Open Question 9)** *(Needs: build machine beyond the 3-core/60-min hosted CI limit + physical watch hardware — first ask for contributors)*
+- [ ] Build Dart VM + `gen_snapshot` (`tools/gn.py --os watchos`) and measure on-device binary size, AOT `hello_world` RSS memory, and watchOS jetsam headroom
+
+**Phase 0: `watchos_ui` specification & Simulator CI spikes**
+- [x] macOS Simulator CI workflow & spikes (SwiftUI renderer, headless Dart capture, Simulator `ws://` loopback, Path B fixtures, retagged engine smoke test)
+- [ ] Full widget catalog and `WatchConstraintProfile` for all seven display sizes (`40, 41, 42, 44, 45, 46, 49 mm`)
 - [ ] Navigation model and Digital Crown scroll-physics contract
 
-**Phase 0.5: CI validation spikes**
-- [x] macOS workflow with a watchOS Simulator destination
-- [x] Simulator CI spikes: SwiftUI renderer, headless Dart capture, loopback WebSocket, Path B display-list fixtures
-- [ ] Engine-on-watchOS feasibility (retagged smoke test passes in Simulator; from-source build needs a larger machine)
-
-**Phase 1: Proof of concept (dev mode)**
-- [ ] `WatchHost` + `WatchFrameStreamer`, Dart WebSocket server, SwiftUI frame view, watchOS listener
-- [ ] Tap round trip: `WatchInputInjector` → `setState` → new frame
-- [ ] **Milestone 1a:** `WatchText` + `WatchButton` in the Simulator driven by a real macOS desktop host, with live hot reload and sustained multi-frame animation streaming
-- [ ] **Milestone 1b (experimental / contributor-gated):** HTTP (`URLSession.bytes`) or `WatchConnectivity` preview on a real watch
-- [ ] Measure and publish frame time, bandwidth and tap-to-photon latency
-
-**Phase 2: Debug tooling**
+**Phases 1–2: Mode 1a desktop dev loop & debug tooling**
+- [ ] Real macOS desktop `WatchHost` + `WatchFrameStreamer`, Simulator `ws://` listener, `WatchInputInjector` tap round trip
+- [ ] **Milestone 1a:** `WatchText` + `WatchButton` in the Simulator driven by a real desktop host, with live hot reload and sustained multi-frame animation streaming
 - [ ] `ConstraintValidator` (render tree → violations), debug overlay, preview viewport, send gate that blocks critical violations
+- [ ] Measure and publish frame time, bandwidth, and tap-to-photon latency in Mode 1a
+- [ ] **Mode 1b (experimental / contributor-gated):** Evaluate HTTP (`URLSession.bytes` + local ATS behavior) or `WatchConnectivity` on physical hardware
 
-**Phase 3: Production, engine on device**
-- [ ] Feasibility (Open Question 9), Swift embedder host, watchOS AOT build targets, framework linkage
-- [ ] Binary size within watchOS limits; memory and frame times per device with Instruments (oldest supported watch, a recent Series, Ultra)
-- [ ] Public-API audit: imported symbols of the final binary all resolve against the public watchOS SDK; no stubs, overlays or private frameworks
-- [ ] `flutter build watchos` produces a `.watchapp`
+**Phase 3: Production embedder & platform bridges**
+- [ ] Feasibility (Gate 0c), Swift `embedder.h` host, watchOS AOT build targets, framework linkage
+- [ ] Accessibility (`FlutterEngineUpdateSemanticsCallback` → `.accessibilityChildren`, Dynamic Type scaling) and text input (`WKTextInputController` / SwiftUI `TextField` bridge)
+- [ ] Binary size within watchOS limits; memory and frame times with Instruments across supported `arm64` hardware tiers (SE 3, recent Series, Ultra 2+)
+- [ ] Public-API audit: imported symbols of the final binary all resolve against the public watchOS SDK; no stubs, overlays, or private frameworks
 
-**Phase 4: Display-list / zero-copy research (optional, Path B (`docs/display-list-research.md`))**
+**Phase 4: Display-list / zero-copy research (optional, Path B — `docs/display-list-research.md`)**
 - [ ] Solve the paint hook (Open Question 7), Dart FFI bridge, `ZeroCopyCanvas` + `WatchRenderStore`, haptic/event callbacks
-- [ ] Measure allocation, frame drops and FFI cost against the hypotheses in Path B (`docs/display-list-research.md`)
+- [ ] Measure allocation, frame drops, and FFI cost against the hypotheses in `docs/display-list-research.md`
 
 **Phase 5: App Store pipeline**
-- [ ] Xcode integration and monorepo layout, signing and provisioning, submission validation, example app and docs
-
+- [ ] Xcode Watch-only target (`WKWatchOnly` / `WKApplication`) or CLI iOS-stub `.ipa` packaging (`ITSWatchOnlyContainer` / `LSApplicationLaunchProhibited`, unverified), signing/provisioning, submission validation, example app, and docs
 ---
 
 ## Related Work
@@ -593,6 +607,8 @@ All of this is taken from those public pages. The site describes the profile and
 - Apple Support, *Update your Apple Watch* (watchOS 27 compatibility): https://support.apple.com/en-ca/118574
 - Apple watchOS 27 overview: https://www.apple.com/ca/os/watchos-27/
 - Apple Technical Note TN3135, *Low-level networking on watchOS*: https://developer.apple.com/documentation/technotes/tn3135-low-level-networking-on-watchos
+- Apple Technical Note TN3179, *Understanding local network privacy*: https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy
+- Apple `NSAllowsLocalNetworking` (lists iOS, iPadOS, macOS, visionOS; watchOS not listed): https://developer.apple.com/documentation/bundleresources/information-property-list/nsapptransportsecurity/nsallowslocalnetworking
 - SwiftUI Canvas: https://developer.apple.com/documentation/swiftui/canvas · GraphicsContext: https://developer.apple.com/documentation/swiftui/graphicscontext
 - flutter-watchos: https://flutterwatch.dev (docs: https://github.com/flutterwatch/flutter-watchos/blob/main/doc/get-started.md) · https://github.com/flutterwatch/flutter-watchos · article: https://itnext.io/yes-you-can-build-apple-watch-apps-with-flutter-now-909c3dc84804
 - GitHub-hosted macOS runners: https://docs.github.com/en/actions/using-github-hosted-runners/using-github-hosted-runners/about-github-hosted-runners

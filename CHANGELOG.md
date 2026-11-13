@@ -7,6 +7,8 @@
 - Updated `WatchFrameStreamer` with `_capturePending` coalescing and `stop()`, plus matching unit tests.
 - Marked `ws://` WebSocket transport Simulator-only per Apple TN3135; documented experimental Mode 1b constraints.
 - Synced Q7 memory figures to recent CI runs (`140.1–143.0 MB`) and moved opaque check IDs/run sheets to `watchos-proofs/README.md` with a capability traceability table.
+- Added provenance disclosure, `"Why Not flutter-watchos?"`, `embedder.h` Path A boundary, illustrative memory floor, and explicit known test limitations.
+- Added Platform Gaps & Scope (TN3179, unverified `NSAllowsLocalNetworking` / `ITSWatchOnlyContainer`, Accessibility, Text Input, WidgetKit exclusions) and reordered contributor-gated Gates 0a–0c up front.
 
 ### v9.1: November 2026 (Proof Suite Catalog Alignment & Toolchain Refresh)
 - **Proof Suite Synchronization:** Added check Q7 (Crown scroll input & low-memory hook) to the test catalog in README.md, aligning the documentation with all 34 passing checks.
