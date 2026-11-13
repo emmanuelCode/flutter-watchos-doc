@@ -25,6 +25,19 @@ something fails.
 **Latest result:** 34 of 34 checks passed (commit ba93b27, run 43286738502; runner image macos26 20261102.0473.1, macOS 26.7.2,
 Xcode 26.6, watchOS 26.5 Simulator, Flutter 3.50.0, Dart 3.14.0 on all jobs).
 
+## Capability-to-check traceability
+
+The main spec (`flutter_watchos_architecture.md`) summarizes validation by capability; this table maps each capability to its CI check IDs:
+
+| Spec capability | Check IDs |
+|---|---|
+| Watch-side SwiftUI renderer (`WatchFrameStore`, `WatchFrameView`) | `P0, P1, P4, P5, X2, S0, S3, S4` |
+| Headless Dart frame capture & input (`WatchFrameStreamer`, `WatchInputInjector`) | `F0, P2, P3, X1, S1, S7` |
+| Loopback WebSocket transport & sustained throughput (Simulator-only per TN3135) | `P6, P9` |
+| End-to-end Simulator dev loop | `E0, E1` |
+| Path B display-list fixtures (`docs/display-list-research.md`) | `A1, A2, A3, A4, S2, S5, S6` |
+| Engine-on-watchOS smoke test (retagged Mac JIT binary in Simulator) | `Q0, Q1, Q2, Q2s, Q3, Q4, Q5, Q6, Q7` |
+
 ## Test catalog
 
 **34 checks in four jobs**, all run on a macOS GitHub runner with the watchOS Simulator. IDs are not contiguous
@@ -91,7 +104,7 @@ engine from source is beyond a hosted runner, so these checks ask what *can* be 
 | Q3 | Finding | Gap analysis: which libraries and symbols the official engines import that the watchOS SDK does not provide | Maps what a port must replace | Direct lookups are reliable: the watchOS SDK exports `CAMetalLayer`, `CGBitmapContextCreate` and `CTFontCreateWithName` but not `MTLCreateSystemDefaultDevice` or `IOSurfaceCreate`; 7 libraries are absent. **The per-library missing-symbol totals are not reliable** (the script flags basic `libSystem` symbols such as `_bzero` as missing), so no total is quoted |
 | Q4 | Experiment | Retag the official desktop embedder library as a watchOS Simulator binary and see whether a watchOS process can load it | Finds exactly what stops the real engine code | It loads, after rewriting 8 framework paths, stubbing 7 absent libraries and overlaying 4 CoreVideo symbols; `FlutterEngineRun` and two other API symbols resolve. A retagged macOS binary is not a shippable port |
 | Q5 | Experiment | Run Flutter inside a watchOS process through `embedder.h` with the software renderer, using a host written from scratch; check the rendered pixels | Shows how far the real engine gets | Dart executed (a stripe is green only if `fib(20) == 6765`), text shaped and drew (746 bright glyph pixels in the latest run) and a frame came through the present callback. The pixel byte order of the callback is RGBA in this engine build, inferred from the pass. *Limits:* a patched debug (JIT) engine in a Mac-hosted Simulator process; it proves nothing about a source build, AOT, a real watch, memory, speed or App Store review |
-| Q6 | Experiment | Interactive loop inside a watchOS process: tap injected via `FlutterEngineSendPointerEvent`, Dart `setState` executed, frame 2 rendered and verified; memory footprint logged | Shows the engine runs an interactive event loop on watchOS | Dart received touch input, executed `setState`, reshaped text to TAP, repainted yellow/cyan stripes and presented frame 2. Resident and virtual memory measured via Mach task info (about 141–146 MB resident in debug mode). *Limits:* JIT debug engine in the Simulator |
+| Q6 | Experiment | Interactive loop inside a watchOS process: tap injected via `FlutterEngineSendPointerEvent`, Dart `setState` executed, frame 2 rendered and verified; memory footprint logged | Shows the engine runs an interactive event loop on watchOS | Dart received touch input, executed `setState`, reshaped text to TAP, repainted yellow/cyan stripes and presented frame 2. Resident and virtual memory measured via Mach task info (about 140.1–143.0 MB resident under Flutter 3.50.0 debug mode). *Limits:* JIT debug engine in the Simulator |
 | Q7 | Experiment | Crown scroll input (`signal_kind=scroll` -> `setState` -> frame 3) and the low-memory hook | Demonstrates rotary event handling and the low-memory embedder hook | The scroll signal reached Dart (`Listener` -> `PointerScrollEvent` -> `setState`), text repainted to CROWN, frame 3 rendered; `FlutterEngineNotifyLowMemoryWarning` succeeded without crashing. *Limits:* synthetic engine signal, no hardware Crown or SwiftUI `.digitalCrownRotation` |
 
 The frames the engine rendered are uploaded as the `engine-frames` artifact (frames 1, 2 and 3).
@@ -137,7 +150,7 @@ than a free runner. The gap list from Q3 and Q4 is what that port has to replace
 | Q6 | `scripts/q6_interactive_engine.sh`, `engine_probe/engine_host.c`, `scripts/frame_check.py` |
 | Q7 | `scripts/q7_crown_and_memory.sh`, `engine_probe/engine_host.c`, `scripts/frame_check.py` |
 
-The spec itself is `flutter_watchos_architecture_v9_1.md` at the repo root. The CI step wrapper
+The primary spec is `flutter_watchos_architecture.md` at the repo root (and Path B display-list blocks live in `docs/display-list-research.md`). The CI step wrapper
 `scripts/step.sh` is described in [How the reporting works](#how-the-reporting-works).
 
 ## Run locally (Mac with Xcode + Flutter)
@@ -156,7 +169,7 @@ cd watchos-proofs
 
 ```bash
 ( cd flutter_proofs && flutter pub get )                                              # F0
-python3 scripts/extract_spec_code.py ../flutter_watchos_architecture_v9_1.md dart     # X1 (needed by S1, S7)
+python3 scripts/extract_spec_code.py ../flutter_watchos_architecture.md dart     # X1 (needed by S1, S7)
 ( cd flutter_proofs && flutter test test/p2_headless_frame_capture_test.dart test/p3_tap_injection_test.dart test/s1_spec_streamer_injector_test.dart test/s7_capture_now_test.dart )
 ```
 
@@ -189,7 +202,7 @@ Measurements logged by the tests are appended to `/tmp/watch_proofs/results.log`
 ### 3. Spec code on watchOS (X2, S0, S2–S6)
 
 ```bash
-python3 scripts/extract_spec_code.py ../flutter_watchos_architecture_v9_1.md swift    # X2
+python3 scripts/extract_spec_code.py ../flutter_watchos_architecture.md swift    # X2
 bash scripts/swift_pkg.sh build swift_spec SpecCode                                   # S0
 bash scripts/swift_pkg.sh test swift_spec SpecCode SpecCodeTests/S2_ColorARGBTests    # S2 (same pattern for S3 to S6)
 ```
