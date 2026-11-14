@@ -525,7 +525,7 @@ Full-frame zlib shrank test frames ≈ 180–195× (≈ 31 KB/s at 1.0, ≈ 118 
 
 ### Known test limitations (open)
 
-1. **SDK gap script (`libSystem` false positives & device SDK check):** Earlier CI runs of `engine_gap.py` flagged `libSystem` re-exports (`_bzero`, `___error`) as missing because the parser missed TBD v5 `libraries` dicts and `reexports`/`re-exports` sections, and only checked `watchsimulator`. `engine_gap.py` has now been updated to handle both and compare against the real `watchos` device SDK (pending verification on the next CI run).
+1. **SDK gap analysis (`Q3`) resolved & device SDK verified (`6adb57d`):** Fixed `engine_gap.py` to parse TBD v5 `libraries`/`reexported_symbols` and multi-doc YAML Simulator host-kernel `libSystem` sub-docs. Verified totals: **desktop embedder (`FlutterEmbedder`)** misses `22 of 673` symbols on both `watchsimulator` and `watchos` device SDK (`0` delta; all `22` are `Metal`/`CoreVideo`/`MPS`/`IOKit` GPU symbols, `0` `libSystem` misses; `Q4` flags only the `4` `CoreVideo` `CVMetalTextureCache*` symbols); **iOS engine (`ios_Flutter`)** misses `44 of 1,077` symbols on `watchos` device SDK (`46` on `watchsimulator`, where `libswiftQuartzCore` is absent). Note: `.tbd` exports reflect linker stubs, not header availability (`Q3` `--sdk watchos` Clang/Swift probes confirm `Metal/Metal.h` is missing and `CAMetalLayer`, `UIView`, and `fork()` fail compilation, while `SKMutableTexture`, `SKTexture(data:size:)`, `SpriteView`, `CoreGraphics`, `CoreText`, `WKCrownSequencer`, and `chdir` compile cleanly).
 2. **Off-screen redraw assertions:** The SwiftUI redraw tests assert `objectWillChange` invalidation and verify updated pixel colors via off-screen `ImageRenderer`, which does not prove live on-screen SwiftUI invalidation or `.ignoresSafeArea()` layout inside a hosted `WKApplication` window on watchOS hardware.
 3. **Unexercised `WatchHost`:** Mode 1 has not run in a real macOS desktop host (`flutter test` stood in), with live hot reload, or under sustained multi-frame streaming (the E2E check sent two frames).
 4. **Geometry drift across tests:** CI boots a 46 mm Simulator (`208×248 pt`), whereas the loopback, E2E, and engine smoke tests render `198×242` (45 mm) and headless Dart capture tests run on `flutter test`'s `800×600` surface.
@@ -561,9 +561,9 @@ This concerns Open Question 9 and is a starting point for anyone building a full
 **Facts from the engine source (pinned commit `371f77202a…`, Dart 3.14.0):**
 - The build tool's target OS list is `android, ios, mac, linux, fuchsia, wasm, win, qnx`: no watchOS, and `--simulator` is iOS-only.
 - `qnx` is the precedent for a new OS: arm64 only, Skia GPU backends off (software-only). The embedder's software surface is on by default.
-- `fml/build_config.h` treats watchOS as iOS (`TARGET_OS_IPHONE` is 1 there). 49 of 55 sampled `fml` files compile for watchOS with C++20; the other 6 stopped on `third_party` headers outside the sample.
+- `fml/build_config.h` treats watchOS as iOS (`TARGET_OS_IPHONE` is 1 there). 49 of 55 sampled `fml` files compile cleanly with C++20 on **both** `watchsimulator` and `--sdk watchos` (`arm64` device SDK); the other 6 stopped only on `third_party` headers (`abseil-cpp`, `dart`, `icu`) outside the sparse sample (`0` unavailable-API errors). Of 28 sampled `shell/platform/embedder` files on `--sdk watchos`, 1 compiles standalone and 27 stop only on missing out-of-sample `flutter/common`, `flow`, and `shell/common` headers (`0` unavailable-API errors).
 - Dart's `tools/gn.py` accepts `watchos` / `watchos_simulator`. **Whether the Dart VM builds and runs on watchOS is not verified.**
-- The watchOS SDK exports `CAMetalLayer`, `CGBitmapContextCreate`, `CTFontCreateWithName`, but not `MTLCreateSystemDefaultDevice` or `IOSurfaceCreate`.
+- Linker `.tbd` stubs vs. public headers (`--sdk watchos`): watchOS `.tbd` stubs export `CAMetalLayer`, `UIView`, `SKMutableTexture`, `CGBitmapContextCreate`, `CTFontCreateWithName`, and `CVPixelBufferCreate` (not `MTLCreateSystemDefaultDevice` or `IOSurfaceCreate`), while real Clang/Swift compilation against `--sdk watchos` proves `Metal/Metal.h` is absent and `CAMetalLayer`, `UIView`, and `fork()` fail compilation—whereas `SKMutableTexture` (Obj-C `initWithSize:` & Swift), `SKTexture(data:size:)`, `SpriteView`, `CoreGraphics`, `CoreText`, `WKCrownSequencer`, and `chdir` compile cleanly.
 
 **Proposed route (untested):**
 0. *Build tool:* add `watchos` / `watchos_simulator` target OS, SDK and deployment-target variables; start with the arm64 simulator.
@@ -619,7 +619,8 @@ The highest-risk unknowns (Apple compliance and on-device AOT runtime footprint)
 - [x] macOS Simulator CI workflow & spikes (SwiftUI renderer, headless Dart capture, Simulator `ws://` loopback, Path B fixtures, retagged engine smoke test)
 - [ ] Full widget catalog and `WatchConstraintProfile` for all seven display sizes (`40, 41, 42, 44, 45, 46, 49 mm`)
 - [ ] Navigation model and Digital Crown scroll-physics contract
-- [ ] Run `Q1` (`fml` + `shell/platform/embedder` C++20 header/object compile) and `Q3` (`engine_gap.py`) against `--sdk watchos` (`CODE_SIGNING_ALLOWED=NO`) in CI, and record exact `WatchOS.sdk` Metal / `SpriteKit` (`SKMutableTexture`) availability annotations (hardware-free evidence for Open Question 12)
+- [x] Run `Q1` (`fml` + `shell/platform/embedder` C++20 syntax compile) and `Q3` (`engine_gap.py`) against `--sdk watchos` in CI, and verify `WatchOS.sdk` `Metal.h` / `CAMetalLayer` / `UIView` / `SpriteKit` (`SKMutableTexture`, `SpriteView`) compiler availability (`6adb57d`)
+- [ ] Extend `Q1` with full `third_party` header availability / static object linking under `--sdk watchos` (`CODE_SIGNING_ALLOWED=NO`)
 - [ ] Build `watchos_ui` as a standalone Dart/Flutter package + HIG validator on Linux/Windows CI (independent of engine work)
 
 **Phases 1–2: Mode 1a desktop dev loop & debug tooling**
