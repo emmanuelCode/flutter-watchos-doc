@@ -326,12 +326,14 @@ def _diagnose_libsystem(sdk_name="watchsimulator"):
     for t in targets:
         rl(f"Q3: [diag:{sdk_name}] raw .tbd matches for {t}: " + (", ".join(f"{p}(parsed={ok})" for p, ok in hits[t][:5]) or "NONE"))
         bad = next((p for p, ok in hits[t] if not ok), None)
-        if bad:
+        if bad and t == "___error":
             try:
                 raw = open(os.path.join(sdk, bad), encoding="utf-8", errors="replace").read()
                 idx = raw.find(t)
-                ctx = raw[max(0, idx - 180):idx + 80].replace("\n", " | ")
-                rl(f"Q3: [diag:{sdk_name}]   unparsed sample ({bad}): {ctx[:240]}")
+                top = [ln.rstrip() for ln in raw.splitlines()[:12] if ln.strip()]
+                head = [ln.rstrip() for ln in raw[:idx].splitlines() if ln.strip() and not ln.lstrip().startswith("_")][-12:]
+                rl(f"Q3: [diag:{sdk_name}]   top ({bad}): " + " | ".join(top)[:240])
+                rl(f"Q3: [diag:{sdk_name}]   above {t} ({bad}): " + " | ".join(head)[:240])
             except OSError:
                 pass
 
