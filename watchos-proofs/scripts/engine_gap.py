@@ -122,15 +122,22 @@ def parse_tbd(text, syms, installs, platform=None):
         except Exception:
             pass
 
-    for doc in DOC_SPLIT.split(text):
-        if not doc.strip():
-            continue
+    docs = [d for d in DOC_SPLIT.split(text) if d.strip()]
+    tm_first = DOC_TARGETS_RX.search(docs[0]) if docs else None
+    first_targets = [t.strip().strip("'\"").lower() for t in tm_first.group(1).split(",") if t.strip()] if tm_first else []
+    file_is_watch_sim = (
+        platform == "watchos"
+        and bool(first_targets)
+        and any("watchos" in t and "simulator" in t for t in first_targets)
+        and not any("macos" in t for t in first_targets)
+    )
+    for doc in docs:
         for m in INSTALL_RX.finditer(doc):
             installs.add(m.group(1).strip())
         tm_doc = DOC_TARGETS_RX.search(doc)
         doc_targets = [t.strip().strip("'\"").lower() for t in tm_doc.group(1).split(",") if t.strip()] if tm_doc else []
-        # Simulator SDK libSystem stubs declare watchos-simulator in the doc header while keeping macos tags on host-kernel exports.
-        is_watch_sim_doc = (
+        # Simulator umbrella .tbd files declare watchos-simulator on doc 1 while embedded host-kernel sub-docs keep macos tags.
+        is_watch_sim_doc = file_is_watch_sim or (
             platform == "watchos"
             and bool(doc_targets)
             and any("watchos" in t and "simulator" in t for t in doc_targets)
