@@ -23,6 +23,8 @@ LIST_RX = re.compile(
     re.S,
 )
 INSTALL_RX = re.compile(r"install-name:\s*['\"]?([^'\"\n]+?)['\"]?\s*$", re.M)
+DOC_SPLIT = re.compile(r"(?=^---(?:\s|$))", re.M)
+DOC_TARGETS_RX = re.compile(r"^targets:\s*\[(.*?)\]", re.M | re.S)
 
 PLATFORMS = ("macos", "ios", "watchos", "tvos", "xros", "visionos", "bridgeos", "maccatalyst", "driverkit")
 EXPORTS_RX = re.compile(
@@ -56,7 +58,7 @@ def _iter_v5_libs(libs_obj):
     return []
 
 
-def _parse_tbd_v5_lib(lib, syms, installs, platform=None):
+def _parse_tbd_v5_lib(lib, syms, installs, platform=None, allow_sim_host=False):
     if not isinstance(lib, dict):
         return
     for item in lib.get("install_names", []):
@@ -68,7 +70,10 @@ def _parse_tbd_v5_lib(lib, syms, installs, platform=None):
             if not isinstance(exp, dict):
                 continue
             targets = " ".join(str(t).lower() for t in exp.get("targets", []))
-            if platform and targets and any(p in targets for p in PLATFORMS) and platform not in targets:
+            has_any_platform = any(p in targets for p in PLATFORMS)
+            matches_platform = platform in targets if platform else True
+            matches_sim_host = allow_sim_host and ("arm64-macos" in targets or "x86_64-macos" in targets)
+            if platform and has_any_platform and not (matches_platform or matches_sim_host):
                 continue
             for section in (exp.get("text"), exp.get("data"), exp.get("thread_local"), exp):
                 if not isinstance(section, dict):
@@ -89,12 +94,12 @@ def _parse_tbd_v5_lib(lib, syms, installs, platform=None):
                         syms.add("_OBJC_IVAR_$_" + ivar)
 
 
-def _walk_v5_lib(lib, syms, installs, platform=None):
+def _walk_v5_lib(lib, syms, installs, platform=None, allow_sim_host=False):
     if not isinstance(lib, dict):
         return
-    _parse_tbd_v5_lib(lib, syms, installs, platform)
+    _parse_tbd_v5_lib(lib, syms, installs, platform, allow_sim_host)
     for sub in _iter_v5_libs(lib.get("libraries")):
-        _walk_v5_lib(sub, syms, installs, platform)
+        _walk_v5_lib(sub, syms, installs, platform, allow_sim_host)
 
 
 def parse_tbd(text, syms, installs, platform=None):
@@ -103,22 +108,45 @@ def parse_tbd(text, syms, installs, platform=None):
     if stripped.startswith("{"):
         try:
             doc = json.loads(stripped)
-            _walk_v5_lib(doc.get("main_library"), syms, installs, platform)
+            tinfo = [str(ti.get("target", "")).lower() for ti in doc.get("target_info", []) if isinstance(ti, dict)]
+            is_sim_v5 = (
+                platform == "watchos"
+                and bool(tinfo)
+                and any("watchos" in t and "simulator" in t for t in tinfo)
+                and not any("macos" in t for t in tinfo)
+            )
+            _walk_v5_lib(doc.get("main_library"), syms, installs, platform, is_sim_v5)
             for sub in _iter_v5_libs(doc.get("libraries")):
-                _walk_v5_lib(sub, syms, installs, platform)
+                _walk_v5_lib(sub, syms, installs, platform, is_sim_v5)
             return
         except Exception:
             pass
-    for m in INSTALL_RX.finditer(text):
-        installs.add(m.group(1).strip())
-    for em in EXPORTS_RX.finditer(text):
-        for block in BLOCK_SPLIT.split(em.group(1))[1:]:
-            tm = re.match(r"\s*\[(.*?)\]", block, re.S)
-            targets = tm.group(1).lower() if tm else ""
-            if platform and any(p in targets for p in PLATFORMS) and platform not in targets:
-                continue
-            for key, body in LIST_RX.findall(block):
-                _add_tokens(key, body, syms)
+
+    for doc in DOC_SPLIT.split(text):
+        if not doc.strip():
+            continue
+        for m in INSTALL_RX.finditer(doc):
+            installs.add(m.group(1).strip())
+        tm_doc = DOC_TARGETS_RX.search(doc)
+        doc_targets = [t.strip().strip("'\"").lower() for t in tm_doc.group(1).split(",") if t.strip()] if tm_doc else []
+        # Simulator SDK libSystem stubs declare watchos-simulator in the doc header while keeping macos tags on host-kernel exports.
+        is_watch_sim_doc = (
+            platform == "watchos"
+            and bool(doc_targets)
+            and any("watchos" in t and "simulator" in t for t in doc_targets)
+            and not any("macos" in t for t in doc_targets)
+        )
+        for em in EXPORTS_RX.finditer(doc):
+            for block in BLOCK_SPLIT.split(em.group(1))[1:]:
+                tm = re.match(r"\s*\[(.*?)\]", block, re.S)
+                targets = tm.group(1).lower() if tm else ""
+                has_any_platform = any(p in targets for p in PLATFORMS)
+                matches_platform = platform in targets if platform else True
+                matches_sim_host = is_watch_sim_doc and ("arm64-macos" in targets or "x86_64-macos" in targets)
+                if platform and has_any_platform and not (matches_platform or matches_sim_host):
+                    continue
+                for key, body in LIST_RX.findall(block):
+                    _add_tokens(key, body, syms)
 
 
 def _walk_tbds(sdk):
@@ -230,7 +258,7 @@ def analyse(label, binary):
         rl(f"Q3: [{label}] device SDK (watchos) direct check: {len(dev_missing)} of {len(undef)} missing; "
            f"delta vs watchsimulator: +{len(dev_only_missing_libs)} libs, +{len(dev_only_missing_syms)} / -{len(sim_only_missing_syms)} syms")
         if sim_only_missing_syms:
-            rl(f"Q3: [{label}]   present in watchos device SDK but missed in watchsimulator: " + ", ".join(sim_only_missing_syms[:8]))
+            rl(f"Q3: [{label}]   still missed in watchsimulator: " + ", ".join(sim_only_missing_syms[:8]))
     except subprocess.CalledProcessError:
         rl(f"Q3: [{label}] device SDK (watchos) not installed on this host")
 
@@ -295,58 +323,10 @@ def _header_facts(sdk_name="watchos"):
         rl(f"Q3: [headers:{sdk_name}] {label} -> {res}")
 
 
-def _diagnose_libsystem(sdk_name="watchsimulator"):
-    try:
-        sdk = sdk_path(sdk_name)
-    except subprocess.CalledProcessError:
-        return
-    lib_tbd = os.path.join(sdk, "usr", "lib", "libSystem.B.tbd")
-    sys_dir = os.path.join(sdk, "usr", "lib", "system")
-    rl(f"Q3: [diag:{sdk_name}] libSystem.B.tbd exists={os.path.exists(lib_tbd)}; usr/lib/system exists={os.path.isdir(sys_dir)}")
-    if os.path.exists(lib_tbd):
-        try:
-            with open(lib_tbd, encoding="utf-8", errors="replace") as f:
-                lines = [ln.rstrip() for ln in f if ln.strip()][:8]
-            for ln in lines:
-                rl(f"Q3: [diag:{sdk_name}]   libSystem.B.tbd: {ln[:140]}")
-        except OSError:
-            pass
-    targets = ("___error", "_chdir", "__exit")
-    hits = {t: [] for t in targets}
-    for p in _walk_tbds(sdk):
-        try:
-            txt = open(p, encoding="utf-8", errors="replace").read()
-        except OSError:
-            continue
-        for t in targets:
-            if t in txt:
-                s_one = set()
-                parse_tbd(txt, s_one, set(), "watchos")
-                hits[t].append((os.path.relpath(p, sdk), t in s_one))
-    for t in targets:
-        rl(f"Q3: [diag:{sdk_name}] raw .tbd matches for {t}: " + (", ".join(f"{p}(parsed={ok})" for p, ok in hits[t][:5]) or "NONE"))
-        bad = next((p for p, ok in hits[t] if not ok), None)
-        if bad and t == "___error":
-            try:
-                raw = open(os.path.join(sdk, bad), encoding="utf-8", errors="replace").read()
-                idx = raw.find(t)
-                keys = [ln.strip() for ln in raw[:idx].splitlines() if ":" in ln and not ln.lstrip().startswith(("_", "'", "$"))]
-                rl(f"Q3: [diag:{sdk_name}]   yaml keys above {t} ({bad}): " + " | ".join(keys[-8:])[:240])
-                em_hits = [em for em in EXPORTS_RX.finditer(raw) if t in em.group(0)]
-                rl(f"Q3: [diag:{sdk_name}]   EXPORTS_RX hits containing {t}: {len(em_hits)}")
-                if em_hits:
-                    blk = next((b for b in BLOCK_SPLIT.split(em_hits[0].group(1))[1:] if t in b), "")
-                    rl(f"Q3: [diag:{sdk_name}]   block head: " + blk[:160].replace("\n", " | "))
-                    rl(f"Q3: [diag:{sdk_name}]   LIST_RX match has {t}: {any(t in body for _, body in LIST_RX.findall(blk))}")
-            except OSError:
-                pass
-
-
 def api_facts():
     _log_api_facts("watchsimulator", "watchos")
     _log_api_facts("watchos", "watchos")
     _header_facts("watchos")
-    _diagnose_libsystem("watchsimulator")
 
 
 if __name__ == "__main__":
