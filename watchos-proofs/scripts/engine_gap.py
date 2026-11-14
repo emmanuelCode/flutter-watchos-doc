@@ -18,12 +18,17 @@ def sdk_path(name):
     return subprocess.check_output(["xcrun", "--sdk", name, "--show-sdk-path"], text=True).strip()
 
 
-LIST_RX = re.compile(r"\b(symbols|weak-symbols|thread-local-symbols|objc-classes|objc-eh-types|objc-ivars)\s*:\s*\[(.*?)\]", re.S)
-INSTALL_RX = re.compile(r"install-name:\s*'?([^'\n]+?)'?\s*$", re.M)
-
+LIST_RX = re.compile(
+    r"\b(symbols|weak-symbols|thread-local-symbols|objc-classes|objc-eh-types|objc-ivars)\s*:\s*\[(.*?)\]",
+    re.S,
+)
+INSTALL_RX = re.compile(r"install-name:\s*['\"]?([^'\"\n]+?)['\"]?\s*$", re.M)
 
 PLATFORMS = ("macos", "ios", "watchos", "tvos", "xros", "visionos", "bridgeos", "maccatalyst", "driverkit")
-EXPORTS_RX = re.compile(r"^exports:[ \t]*\n(.*?)(?=^(?:reexports|undefineds)\s*:|^\.\.\.|^---|\Z)", re.S | re.M)
+EXPORTS_RX = re.compile(
+    r"^(?:exports|reexports|re-exports):[ \t]*\n(.*?)(?=^(?=[a-zA-Z])[a-zA-Z0-9_-]*\s*:|^\.\.\.|^---|\Z)",
+    re.S | re.M,
+)
 BLOCK_SPLIT = re.compile(r"^[ \t]*-[ \t]+(?:targets|archs):", re.M)
 
 
@@ -43,6 +48,14 @@ def _add_tokens(key, body, syms):
             syms.add(t)
 
 
+def _iter_v5_libs(libs_obj):
+    if isinstance(libs_obj, dict):
+        return list(libs_obj.values())
+    if isinstance(libs_obj, list):
+        return list(libs_obj)
+    return []
+
+
 def _parse_tbd_v5_lib(lib, syms, installs, platform=None):
     if not isinstance(lib, dict):
         return
@@ -50,40 +63,49 @@ def _parse_tbd_v5_lib(lib, syms, installs, platform=None):
         name = item.get("name") if isinstance(item, dict) else item
         if isinstance(name, str):
             installs.add(name)
-    for exp in lib.get("exported_symbols", []):
-        if not isinstance(exp, dict):
-            continue
-        targets = " ".join(str(t).lower() for t in exp.get("targets", []))
-        if platform and targets and any(p in targets for p in PLATFORMS) and platform not in targets:
-            continue
-        for section in (exp.get("text"), exp.get("data"), exp.get("thread_local"), exp):
-            if not isinstance(section, dict):
+    for section_key in ("exported_symbols", "reexported_symbols"):
+        for exp in lib.get(section_key, []):
+            if not isinstance(exp, dict):
                 continue
-            for key in ("global", "weak", "thread_local", "symbols"):
-                for s in section.get(key, []):
-                    if isinstance(s, str):
-                        syms.add(s)
-            for cls in section.get("objc_class", []):
-                if isinstance(cls, str):
-                    syms.add("_OBJC_CLASS_$_" + cls)
-                    syms.add("_OBJC_METACLASS_$_" + cls)
-            for eh in section.get("objc_eh_type", []):
-                if isinstance(eh, str):
-                    syms.add("_OBJC_EHTYPE_$_" + eh)
-            for ivar in section.get("objc_ivar", []):
-                if isinstance(ivar, str):
-                    syms.add("_OBJC_IVAR_$_" + ivar)
+            targets = " ".join(str(t).lower() for t in exp.get("targets", []))
+            if platform and targets and any(p in targets for p in PLATFORMS) and platform not in targets:
+                continue
+            for section in (exp.get("text"), exp.get("data"), exp.get("thread_local"), exp):
+                if not isinstance(section, dict):
+                    continue
+                for key in ("global", "weak", "thread_local", "symbols"):
+                    for s in section.get(key, []):
+                        if isinstance(s, str):
+                            syms.add(s)
+                for cls in section.get("objc_class", []):
+                    if isinstance(cls, str):
+                        syms.add("_OBJC_CLASS_$_" + cls)
+                        syms.add("_OBJC_METACLASS_$_" + cls)
+                for eh in section.get("objc_eh_type", []):
+                    if isinstance(eh, str):
+                        syms.add("_OBJC_EHTYPE_$_" + eh)
+                for ivar in section.get("objc_ivar", []):
+                    if isinstance(ivar, str):
+                        syms.add("_OBJC_IVAR_$_" + ivar)
+
+
+def _walk_v5_lib(lib, syms, installs, platform=None):
+    if not isinstance(lib, dict):
+        return
+    _parse_tbd_v5_lib(lib, syms, installs, platform)
+    for sub in _iter_v5_libs(lib.get("libraries")):
+        _walk_v5_lib(sub, syms, installs, platform)
 
 
 def parse_tbd(text, syms, installs, platform=None):
-    """Collect install names and exported symbols from YAML TBD (v3/v4) and JSON TBD (v5)."""
+    """Collect install names and exported/re-exported symbols from YAML TBD (v3/v4) and JSON TBD (v5)."""
     stripped = text.lstrip()
     if stripped.startswith("{"):
         try:
             doc = json.loads(stripped)
-            _parse_tbd_v5_lib(doc.get("main_library"), syms, installs, platform)
-            for sub in doc.get("libraries", []):
-                _parse_tbd_v5_lib(sub, syms, installs, platform)
+            _walk_v5_lib(doc.get("main_library"), syms, installs, platform)
+            for sub in _iter_v5_libs(doc.get("libraries")):
+                _walk_v5_lib(sub, syms, installs, platform)
             return
         except Exception:
             pass
@@ -105,7 +127,8 @@ def load_sdk(sdk, platform=None):
         for fn in files:
             if fn.endswith(".tbd"):
                 try:
-                    parse_tbd(open(os.path.join(root, fn), encoding="utf-8", errors="replace").read(), syms, installs, platform)
+                    with open(os.path.join(root, fn), encoding="utf-8", errors="replace") as f:
+                        parse_tbd(f.read(), syms, installs, platform)
                 except OSError:
                     pass
     return syms, installs
@@ -159,6 +182,8 @@ KEY_APIS = [  # (what, symbol) — direct facts about what the watchOS SDK expor
     ("CGBitmapContextCreate", "_CGBitmapContextCreate"), ("CTFontCreateWithName", "_CTFontCreateWithName"),
     ("CFRunLoopRunInMode", "_CFRunLoopRunInMode"), ("WKInterfaceDevice", "_OBJC_CLASS_$_WKInterfaceDevice"),
     ("WKCrownSequencer", "_OBJC_CLASS_$_WKCrownSequencer"), ("IOSurfaceCreate", "_IOSurfaceCreate"),
+    ("SKMutableTexture", "_OBJC_CLASS_$_SKMutableTexture"), ("SKView", "_OBJC_CLASS_$_SKView"),
+    ("CVPixelBufferCreate", "_CVPixelBufferCreate"),
 ]
 
 
@@ -183,15 +208,36 @@ def analyse(label, binary):
         by_lib[f].append(s_)
     for lib, names in sorted(by_lib.items(), key=lambda kv: -len(kv[1]))[:12]:
         rl(f"Q3: [{label}]   {lib}: {len(names)} missing, e.g. " + ", ".join(names[:5]))
+
+    try:
+        dev_sdk = sdk_path("watchos")
+        dev_syms, dev_installs = load_sdk(dev_sdk, "watchos")
+        dev_only_missing_libs = [short(l) for l in libs if not l.startswith("@") and flat(l) in watch_installs and flat(l) not in dev_installs]
+        dev_only_missing_syms = [f"{s} (in {f})" for s, f in undef if s in watch_syms and s not in dev_syms]
+        rl(f"Q3: [{label}] device SDK (watchos) vs watchsimulator delta: {len(dev_only_missing_libs)} extra missing libs, {len(dev_only_missing_syms)} extra missing syms"
+           + ("" if not dev_only_missing_syms else " e.g. " + ", ".join(dev_only_missing_syms[:8])))
+    except subprocess.CalledProcessError:
+        rl(f"Q3: [{label}] device SDK (watchos) not installed on this host")
+
     return missing_libs, by_lib
 
 
+def _log_api_facts(sdk_name, platform):
+    try:
+        path = sdk_path(sdk_name)
+    except subprocess.CalledProcessError:
+        rl(f"Q3: [{sdk_name}] SDK not installed on this host")
+        return
+    syms, _ = load_sdk(path, platform)
+    have = [n for n, s in KEY_APIS if s in syms]
+    lack = [n for n, s in KEY_APIS if s not in syms]
+    rl(f"Q3: [{sdk_name}] key APIs exported for {platform}: " + (", ".join(have) or "none"))
+    rl(f"Q3: [{sdk_name}] key APIs NOT exported for {platform}: " + (", ".join(lack) or "none"))
+
+
 def api_facts():
-    watch_syms, _ = load_sdk(sdk_path("watchsimulator"), "watchos")
-    have = [n for n, s in KEY_APIS if s in watch_syms]
-    lack = [n for n, s in KEY_APIS if s not in watch_syms]
-    rl("Q3: key APIs the watchOS SDK exports for the watchOS target: " + (", ".join(have) or "none"))
-    rl("Q3: key APIs the watchOS SDK does NOT export for the watchOS target: " + (", ".join(lack) or "none"))
+    _log_api_facts("watchsimulator", "watchos")
+    _log_api_facts("watchos", "watchos")
 
 
 if __name__ == "__main__":

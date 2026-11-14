@@ -227,6 +227,8 @@ int main(int argc, char** argv) {
   FlutterPointerEvent pev;
   memset(&pev, 0, sizeof pev);
   pev.struct_size = sizeof(FlutterPointerEvent);
+  pev.device = 0;
+  pev.device_kind = kFlutterPointerDeviceKindTouch;
   pev.phase = kAdd;
   pev.timestamp = now_us;
   pev.x = tap_x;
@@ -237,6 +239,8 @@ int main(int argc, char** argv) {
   now_us = monotonic_us(get_current_time);
   memset(&pev, 0, sizeof pev);
   pev.struct_size = sizeof(FlutterPointerEvent);
+  pev.device = 0;
+  pev.device_kind = kFlutterPointerDeviceKindTouch;
   pev.phase = kDown;
   pev.timestamp = now_us;
   pev.x = tap_x;
@@ -247,6 +251,8 @@ int main(int argc, char** argv) {
   now_us = monotonic_us(get_current_time);
   memset(&pev, 0, sizeof pev);
   pev.struct_size = sizeof(FlutterPointerEvent);
+  pev.device = 0;
+  pev.device_kind = kFlutterPointerDeviceKindTouch;
   pev.phase = kUp;
   pev.timestamp = now_us;
   pev.x = tap_x;
@@ -284,6 +290,20 @@ int main(int argc, char** argv) {
   now_us = monotonic_us(get_current_time);
   memset(&pev, 0, sizeof pev);
   pev.struct_size = sizeof(FlutterPointerEvent);
+  pev.device = 1;
+  pev.device_kind = kFlutterPointerDeviceKindMouse;
+  pev.phase = kAdd;
+  pev.timestamp = now_us;
+  pev.x = tap_x;
+  pev.y = tap_y;
+  send_pointer(engine, &pev, 1);
+  CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.05, false);
+
+  now_us = monotonic_us(get_current_time);
+  memset(&pev, 0, sizeof pev);
+  pev.struct_size = sizeof(FlutterPointerEvent);
+  pev.device = 1;
+  pev.device_kind = kFlutterPointerDeviceKindMouse;
   pev.phase = kHover;
   pev.signal_kind = kFlutterPointerSignalKindScroll;
   pev.timestamp = now_us;
@@ -331,5 +351,6 @@ int main(int argc, char** argv) {
           (unsigned long)atomic_load(&g_frames_post_tap),
           (unsigned long)atomic_load(&g_frames_post_crown));
 
+  // Exit directly rather than calling FlutterEngineShutdown so teardown does not invoke stubbed AppKit/Metal globals.
   _exit(0);
 }

@@ -1,4 +1,4 @@
-> ⚠️ **Not part of the primary design — and not "Flutter on watchOS".** This file describes a separate display-list research path where SwiftUI `Canvas` *executes* drawing opcodes instead of displaying Flutter-engine pixels. Under Path A in [flutter_watchos_architecture.md](../flutter_watchos_architecture.md), none of this is needed.
+> ⚠️ **Archived research — not part of the primary design and not "Flutter on watchOS".** This file describes a separate display-list research path where SwiftUI `Canvas` *executes* drawing opcodes instead of displaying Flutter-engine pixels. Under Path A in [flutter_watchos_architecture.md](../flutter_watchos_architecture.md), none of this is needed. Passing CI checks for Path B fixtures (`A1–A4`, `S2`, `S5`, `S6`) do **not** validate Path A.
 
 ## Appendix A: Display-List Research Path
 
@@ -333,6 +333,7 @@ struct WatchCanvasView: View {
                     // Advance by variable size + 4-byte alignment padding
                     let rawSize = 28 + textLength
                     let padding = (4 - (rawSize % 4)) % 4
+                    guard need(rawSize + padding) else { return }
                     offset += rawSize + padding
 
                 default:

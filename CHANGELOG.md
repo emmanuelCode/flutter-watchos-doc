@@ -1,5 +1,12 @@
 # Changelog
 
+## November 2026 — Audit fixes, TBD v5 `engine_gap.py` fix, and spec refocus
+- **Fixed `engine_gap.py`:** Added recursive TBD v5 `libraries` (`dict` or `list`) and `reexported_symbols` parsing plus YAML `reexports:`/`re-exports:` handling to eliminate `libSystem` false positives (`_bzero`, `___error`), added `watchos` device-SDK vs. `watchsimulator` comparison, and added `SKMutableTexture`/`SKView`/`CVPixelBufferCreate` to `KEY_APIS` (awaiting next CI verification).
+- **Fixed `WatchRender.swift` (`docs/display-list-research.md`):** Added missing `guard need(rawSize + padding)` check in `DRAW_TEXT` to match `WireReader.swift` and prevent `#if DEBUG` assertion crashes on streams truncated mid-padding.
+- **Fixed `WatchFrameStreamer` & `WatchFrameView`:** Added `_generation` tracking to prevent stale frames across `stop()`/`start()`, passed `retryIfNeedsPaint: true` when draining `_capturePending`, hoisted `store.latest` outside `Canvas` in `WatchFrameView` for `@Observable` compatibility, and added `.ignoresSafeArea()`.
+- **Fixed `engine_host.c`:** Set explicit `device` and `device_kind` (`kFlutterPointerDeviceKindTouch` / `kFlutterPointerDeviceKindMouse`) instead of relying on the legacy `device_kind == 0` fallback.
+- **Spec & documentation cleanup:** Corrected SE 3 screen sizes (`162×197 pt` / `184×224 pt`), clarified that `FlutterMetalRendererConfig` is unavailable on public watchOS APIs without an overlay, marked Path B checks (`A1–A4`, `S2`, `S5`, `S6`) as archived research, marked Mode 1b / Phase 6 as non-goals for upstream Flutter, and flagged `watchos_ui` HIG bounds as v0 defaults to loosen for watchOS 10–27.
+
 ## November 2026 — On-device hot reload research candidate & hardware probe gate
 - Added "On-device hot reload (research candidate, unbuilt)" under Two-Mode Architecture: the two physical-watch blockers (no JIT, TN3135 transport), a Mode 1b / Option C / Option A comparison, upstream dependencies (Dart #61635, `dart2bytecode`, `dynamic_modules`), Shorebird's iOS interpreter as precedent (and why it is not hot reload), and the Mac-side VM-service adapter that an on-device loop would need (hypothesis).
 - Updated the "No JIT on device" constraint and the production hot-reload cell to point at that route without claiming it exists.

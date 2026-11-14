@@ -40,12 +40,12 @@ Decoupling Layer 1 from Layer 2 means the UI constraint layer, validator, and re
 |---|---|
 | No Metal directly | `MTKView` is unavailable and the watchOS SDK does not export `MTLCreateSystemDefaultDevice` (observed in the watchOS SDK dependency gap check), so GPU access is normally indirect (SwiftUI Canvas / SpriteKit). flutter-watchos reports reaching Metal through an SDK overlay; this design does not use that route (Open Question 12) |
 | No UIKit | WatchKit + SwiftUI only |
-| Memory | **~30 MB is an unverified working ceiling** pending real-watch RSS and jetsam measurement. As an **illustrative floor only** (excluding Dart heap, glyph caches, engine code pages, and OS overhead), our artifact check measured `icudtl.dat` at 844 KB and dual `208×248 @2x` RGBA framebuffers at ~1.6 MB (compared to the 23.1 MB debug `kernel_blob.bin` stripped by AOT). Primary production feasibility risk to validate per device |
-| Skia CPU deprecation | Path A's boundary is `embedder.h` (`FlutterRendererConfig`), not Skia CPU permanently. Because Impeller provides no software/CPU backend as of late 2026, if upstream removes Skia's software rasterizer our two contingencies are: **(A)** pin Skia's minimal CPU subset behind `FlutterSoftwareRendererConfig` in our patch set, or **(B)** swap to `FlutterMetalRendererConfig` / `SpriteView` (`SKMutableTexture`) if the compliance gate clears it—requiring zero changes to `watchos_ui` or Dart code (Open Question 12) |
+| Memory | **~30 MB is an unverified working ceiling** pending real-watch RSS and jetsam measurement. As an **illustrative floor only** (excluding engine/Skia/AOT code pages, Skia glyph/resource caches, Dart heap, SwiftUI/CoreGraphics image backing stores, and OS overhead), our artifact check measured `icudtl.dat` at 844 KB and dual `208×248 @2x` RGBA framebuffers at ~1.6 MB (compared to the 23.1 MB debug `kernel_blob.bin` stripped by AOT). Primary production feasibility risk to validate per device (Gate 0c) |
+| Skia CPU deprecation | Path A's boundary is `embedder.h` (`FlutterRendererConfig`), not Skia CPU permanently. Because Impeller provides no software/CPU backend as of late 2026 and the public watchOS SDK does not export `MTLCreateSystemDefaultDevice` (`Q3`), our two **public-API** contingencies if upstream removes Skia's software rasterizer are: **(A)** pin Skia's minimal CPU subset behind `FlutterSoftwareRendererConfig` in our patch set, or **(B)** swap the presentation surface to `SpriteView` (`SKMutableTexture`) to reduce texture-upload copies while still rasterizing on CPU (`FlutterMetalRendererConfig` is viable only if Apple exposes Metal on watchOS or an SDK overlay passes compliance; Open Question 12) |
 | No JIT on device | On-device Dart must be AOT-compiled, so there is no on-device hot reload today. AOT output still carries a Dart runtime (GC etc.). The only known route to on-device reload is an interpreter for changed code (what Shorebird does on iOS, and what Dart's modular-AOT + bytecode work aims at); neither supports watchOS today (see [On-device hot reload](#on-device-hot-reload-research-candidate-unbuilt)) |
 | No dynamic code | Apple restricts downloading and executing executable code at runtime (App Review Guideline 2.5.2, subject to narrow exceptions) |
 | Background limits & TN3135 | The OS suspends background work aggressively; any dev listener must stay in a foreground session. Furthermore, per Apple TN3135 (*Low-level networking on watchOS*), `URLSessionWebSocketTask`, `URLSessionStreamTask`, `NWConnection`, `NWBrowser` (Bonjour), `NSNetService`, and BSD sockets are blocked on physical watches (watchOS 9+) outside active audio streaming or CallKit VoIP, while the Simulator always allows them (`ws://` is Simulator-only) |
-| Screen sizes | 40 mm & 44 mm (Apple Watch SE 3; provisional pending HIG verification) · 41 mm → 176×215 pt · 42 mm → 187×223 pt · 45 mm → 198×242 pt · 46 mm → 208×248 pt · 49 mm Ultra → 205×251 pt (CI Simulator device is 46 mm; current checks run at 45 mm; 42/46 mm specs per Apple Series 10 HIG) |
+| Screen sizes | 40 mm → 162×197 pt (324×394 px, SE 3) · 41 mm → 176×215 pt · 42 mm → 187×223 pt · 44 mm → 184×224 pt (368×448 px, SE 3) · 45 mm → 198×242 pt · 46 mm → 208×248 pt · 49 mm Ultra → 205×251 pt (CI Simulator device is 46 mm; current checks run at 45 mm; 42/46 mm specs per Apple Series 10 HIG) |
 | Device floor & ABI | watchOS 27+ supports Apple Watch SE 3, Series 9+, and Ultra 2+ (per Apple Support *Update your Apple Watch* and Apple's watchOS 27 page), dropping Series 6–8, SE 2, and Ultra 1 (identified as `arm64_32` in developer toolchains/reports). Setting the floor at watchOS 27+ trades away those older watches to avoid the ILP32 Dart AOT porting risk |
 
 ---
@@ -93,11 +93,11 @@ Under Path A, `watchos_ui` is a constraint layer (enforced by the validator and 
 | `WatchDivider` | 1 pt, system gray | Layout |
 | `WatchImage` | Must reference a pre-bundled asset | Memory |
 
-> ⚠️ The numeric limits (44×44 pt, 14–34 pt) and HIG section names are provisional until checked against the current HIG.
+> ⚠️ The numeric limits (44×44 pt, 14–34 pt), `#000000` background lint, and HIG section names are conservative v0 defaults. Modern watchOS 10–27 uses rich tinted/material cards, captions under 14 pt, and large numerals over 34 pt, so font bounds and pure-black lints should be configurable or opt-in rather than hard errors.
 
 **Navigation (watchOS 27+; underlying SwiftUI APIs available since watchOS 10+):** `WatchPageScaffold` (horizontal pages, like Workout/Activity) and `WatchListScaffold` (vertical list driven by the Digital Crown). A push/pop `WatchHierarchicalRouter` is excluded from v0 as a scope decision; `NavigationStack` still exists on watchOS 10.
 
-**Digital Crown:** a `WatchScrollPhysics` consumes Crown rotation deltas (from SwiftUI `.digitalCrownRotation`) to scroll `WatchListScaffold`.
+**Digital Crown:** a `WatchScrollPhysics` consumes Crown rotation deltas (from SwiftUI `.digitalCrownRotation`) to scroll `WatchListScaffold`. *Alternative for production:* hosting a hidden native SwiftUI `ScrollView` behind the Flutter surface (the approach reported by `flutter-watchos`) delegates inertia, rubber-banding, detent haptics, and the system Crown scroll indicator to watchOS directly instead of round-tripping detents through Dart.
 
 ---
 
@@ -166,6 +166,8 @@ Runtime: Swift host starts engine with AOT snapshot → engine renders → prese
 
 ### On-device hot reload (research candidate, unbuilt)
 
+> **Spec scope note:** Both Mode 1b (LAN HTTP pixel streaming to a physical watch) and Phase 6 (on-device bytecode reload proxy) are exploratory notes, **not** recommended targets for upstream Flutter or an MVP. With Simulator JIT handling fast iteration (`Q4–Q7`) and AOT handling device runs, the core proposal for upstream/community adoption is **Mode 2 (`embedder.h` on watchOS) + Layer 1 (`watchos_ui`)**.
+
 Mode 1 is the only dev loop with evidence behind it, and on a physical watch it is only a remote display. This subsection records what a loop that runs Dart *on* the watch would need. **Nothing here is built or tested, and it is not part of Phases 1–5.**
 
 A physical watch has two independent blockers: **execution** (no JIT, so stock Dart hot reload cannot run there) and **transport** (TN3135 blocks WebSocket and other low-level networking, leaving HTTP/HTTPS via `URLSession`). Any design has to clear both.
@@ -217,6 +219,7 @@ class WatchFrameStreamer {
   bool _active = false;
   bool _stopped = false;
   bool _callbackRegistered = false;
+  int _generation = 0;
   int _frameId = 0;
 
   void start() {
@@ -236,6 +239,7 @@ class WatchFrameStreamer {
     _active = false;
     _stopped = true;
     _capturePending = false;
+    _generation++;
   }
 
   /// Call when a watch (re)connects. An idle app produces no frames, so without this a
@@ -261,20 +265,21 @@ class WatchFrameStreamer {
 
     _captureInFlight = true;
     _capturePending = false;
+    final gen = _generation;
     ui.Image? image;
     try {
       image = await boundary.toImage(pixelRatio: pixelRatio);
       final ByteData? data =
           await image.toByteData(format: ui.ImageByteFormat.rawRgba);
-      if (data != null && !_stopped) {
+      if (data != null && !_stopped && gen == _generation) {
         sink(data.buffer.asUint8List(), image.width, image.height, _frameId++);
       }
     } finally {
       image?.dispose();
       _captureInFlight = false;
-      if (_capturePending && !_stopped) {
+      if (_capturePending && !_stopped && gen == _generation) {
         _capturePending = false;
-        unawaited(_capture().catchError((Object e, StackTrace st) {
+        unawaited(_capture(retryIfNeedsPaint: true).catchError((Object e, StackTrace st) {
           FlutterError.reportError(FlutterErrorDetails(exception: e, stack: st));
         }));
       }
@@ -326,6 +331,7 @@ Notes:
 | Dev ≠ prod | Mode 1 does not exercise the watchOS engine, memory or performance |
 | Input latency & preview softness | At `pixelRatio` 1.0, frames stretch 2x on Retina watch displays and look soft (`2.0` is opt-in for visual QA). A Wi-Fi round trip would feel laggy: acceptable only for experimental dev checks, not end users |
 | Headless host | Proven under `flutter test` on a macOS runner; a hidden desktop window or `flutter-tester` process is untested (Open Question 1) |
+| Transport backpressure | `sink` is synchronous with no flow control; a 60/120 Hz Mac host will queue frames faster than a slower Wi-Fi/watch link drains unless send-side backpressure is added, and `WatchFrameStreamer` is not yet wired to `P9`'s `zlib` step |
 | Rendering mismatch | Pixels rendered on the Mac may differ on-device (fonts, scaling, colour) |
 
 **Bandwidth** (uncompressed RGBA, 45 mm screen 198×242 pt):
@@ -369,7 +375,8 @@ Draws the latest received frame. No `TimelineView`: each published frame invalid
 import SwiftUI
 
 // Latest frame received over the WebSocket, already decoded to a CGImage
-// (wrap the RGBA bytes in a CGDataProvider and build the CGImage from it).
+// (wrap the RGBA bytes in a CGDataProvider and build the CGImage from it;
+// Mode 2 should prefer premultiplied/opaque pixel formats to avoid CoreGraphics CPU swizzling on draw).
 @MainActor
 final class WatchFrameStore: ObservableObject {
     @Published var latest: CGImage? = nil
@@ -379,12 +386,15 @@ struct WatchFrameView: View {
     @ObservedObject var store: WatchFrameStore
 
     var body: some View {
+        // Read store.latest outside Canvas so SwiftUI dependency tracking holds under @Observable as well.
         // No TimelineView needed — each published frame triggers a redraw.
+        let frame = store.latest
         Canvas { context, size in
-            guard let frame = store.latest else { return }
+            guard let frame else { return }
             context.draw(Image(decorative: frame, scale: 1),
                          in: CGRect(origin: .zero, size: size))
         }
+        .ignoresSafeArea()
     }
 }
 ```
@@ -492,7 +502,7 @@ Latest environment: macOS arm64 runner, Xcode 26.6, watchOS 26.5 Simulator, Flut
 | **Headless Dart frame capture & input** (`WatchFrameStreamer`, `WatchInputInjector`) | Tested in `flutter test` | Captures raw RGBA with no window; `captureNow()` pushes current frame from an idle app; `stop()` and mid-capture coalescing verified; injected taps trigger `setState()` | Yes: runs on the Mac in Mode 1 |
 | **Loopback WebSocket transport** | Tested in Simulator | Dart server → watchOS Simulator client sends 192 KB frame down and tap up (first frame incl. handshake: 120–259 ms across runs). Passes because Simulator allows low-level networking per Apple TN3135; **not** valid evidence for physical watch `ws://` | No: Simulator-only (TN3135) |
 | **End-to-end dev loop** (Streamer + Injector ↔ WebSocket ↔ SwiftUI View) | Tested in Simulator | On connect `captureNow()` pushed frame 0 (red); tap at (99, 121) returned; frame 1 arrived (green). Host side ran inside `flutter test`, not a real macOS desktop app; no hot reload or sustained multi-frame animation tested | Partly: logic and rendering yes; transport no |
-| **Path B display-list fixtures** | Tested with stand-ins | Anchor fix (`.topLeading`), triple-buffer mailbox, Dart-to-Swift byte parsing, `@_cdecl` `dlsym` lookup, and `WatchCanvasView` (`DRAW_RECT`) pass; `ZeroCopyCanvas` and `DRAW_TEXT` remain unverified | Partly: parsing yes; performance no |
+| **Path B display-list fixtures** *(archived research)* | Tested with stand-ins | Anchor fix (`.topLeading`), triple-buffer mailbox, Dart-to-Swift byte parsing, `@_cdecl` `dlsym` lookup, and `WatchCanvasView` (`DRAW_RECT`) pass (7 checks: `A1–A4`, `S2`, `S5`, `S6`); `ZeroCopyCanvas` and `DRAW_TEXT` remain unverified. Does **not** validate Path A | Partly: parsing yes; performance no |
 
 *(The dev-loop harness checks above are reported separately from the retagged engine smoke test below; CI setup and extraction helper steps are excluded from capability counts.)*
 
@@ -515,8 +525,8 @@ Full-frame zlib shrank test frames ≈ 180–195× (≈ 31 KB/s at 1.0, ≈ 118 
 
 ### Known test limitations (open)
 
-1. **SDK gap script (`libSystem` false positives):** `engine_gap.py` flags basic `libSystem` symbols (`_bzero`, `___error`) as missing on watchOS; only framework-level gaps are reliable.
-2. **Off-screen redraw assertions:** The SwiftUI redraw tests assert `objectWillChange` invalidation and verify updated pixel colors via off-screen `ImageRenderer`, which does not prove live on-screen SwiftUI invalidation on watchOS hardware.
+1. **SDK gap script (`libSystem` false positives & device SDK check):** Earlier CI runs of `engine_gap.py` flagged `libSystem` re-exports (`_bzero`, `___error`) as missing because the parser missed TBD v5 `libraries` dicts and `reexports`/`re-exports` sections, and only checked `watchsimulator`. `engine_gap.py` has now been updated to handle both and compare against the real `watchos` device SDK (pending verification on the next CI run).
+2. **Off-screen redraw assertions:** The SwiftUI redraw tests assert `objectWillChange` invalidation and verify updated pixel colors via off-screen `ImageRenderer`, which does not prove live on-screen SwiftUI invalidation or `.ignoresSafeArea()` layout inside a hosted `WKApplication` window on watchOS hardware.
 3. **Unexercised `WatchHost`:** Mode 1 has not run in a real macOS desktop host (`flutter test` stood in), with live hot reload, or under sustained multi-frame streaming (the E2E check sent two frames).
 4. **Geometry drift across tests:** CI boots a 46 mm Simulator (`208×248 pt`), whereas the loopback, E2E, and engine smoke tests render `198×242` (45 mm) and headless Dart capture tests run on `flutter test`'s `800×600` surface.
 
@@ -582,7 +592,7 @@ This concerns Open Question 9 and is a starting point for anyone building a full
 9. **Engine on watchOS.** *Shown here:* patched official debug engine code runs in a Simulator process. *Third-party evidence (unverified by us):* flutter-watchos reports the engine running on the watch with App Store apps (see Related Work). *Open:* an open-source recipe, whether the Dart VM builds and runs on watchOS, AOT on a device, binary size, memory, and App Review acceptance.
 10. **Simulator networking / CI.** *Answered for Simulator loopback: yes.* The watchOS Simulator allows `ws://` loopback and hosted runners ship a watchOS runtime. On physical watches, Apple TN3135 blocks `URLSessionWebSocketTask` and `NWBrowser` outside active audio/VoIP sessions (`ws://` is Simulator-only).
 11. **Frame-transport budget.** Which mix of pixel ratio, diffs, zlib and capture-rate cap fits 30 fps, over loopback and then real Wi-Fi? *Partly answered (sustained loopback test):* zlib gives ≈ 1 KB / 3.9 KB per mostly-static frame. Open: busy content, real Wi-Fi, decode time on a watch.
-12. **GPU rendering, CPU rasterization and API compliance.** flutter-watchos reports Impeller on Metal through an SDK overlay that supplies a Metal framework the watchOS SDK does not declare. Whether Apple accepts that is unknown here, so this design stays on the public-API software path. Open: whether a public-API route to GPU rasterization (`FlutterMetalRendererConfig` or `SpriteView` / `SKMutableTexture`) passes App Store Connect validation, pinning Skia's minimal CPU subset behind `FlutterSoftwareRendererConfig` if Skia is removed upstream, and the frame-time and battery cost of CPU rasterization on real devices.
+12. **GPU rendering, CPU rasterization and API compliance.** flutter-watchos reports Impeller on Metal through an SDK overlay that supplies a Metal framework the watchOS SDK does not declare. Because upstream Flutter cannot ship on an unadvertised private framework overlay, this design stays strictly on public watchOS APIs. Note that `FlutterMetalRendererConfig` is not public-API-compliant while `MTLCreateSystemDefaultDevice` is absent (`Q3`); the open public-API question is comparing `CGImage` + SwiftUI `Canvas` vs. `SpriteView` (`SKMutableTexture`) for CPU-rasterized presentation, pinning Skia's minimal CPU subset behind `FlutterSoftwareRendererConfig` if Skia is removed upstream, and measuring CPU rasterization frame-time and battery cost on hardware.
 13. **On-device hot reload and physical-watch transport.** Does the JIT restriction apply on a physical watch as assumed, and does `URLSession` streaming reach a Mac on the LAN (including a router with no internet, and `.local` resolution)? Longer term: can an interpreter-based reload path (Dart #61635 direction, Shorebird-style interpreter) run on watchOS, and what Mac-side adapter would let the `flutter` tool reload over HTTP? See [On-device hot reload](#on-device-hot-reload-research-candidate-unbuilt).
 
 ---
@@ -609,7 +619,8 @@ The highest-risk unknowns (Apple compliance and on-device AOT runtime footprint)
 - [x] macOS Simulator CI workflow & spikes (SwiftUI renderer, headless Dart capture, Simulator `ws://` loopback, Path B fixtures, retagged engine smoke test)
 - [ ] Full widget catalog and `WatchConstraintProfile` for all seven display sizes (`40, 41, 42, 44, 45, 46, 49 mm`)
 - [ ] Navigation model and Digital Crown scroll-physics contract
-- [ ] Extend the SDK gap check to record whether the watchOS SDK ships a Metal framework and how its headers are availability-annotated (hardware-free evidence for Open Question 12)
+- [ ] Run `Q1` (`fml` + `shell/platform/embedder` C++20 header/object compile) and `Q3` (`engine_gap.py`) against `--sdk watchos` (`CODE_SIGNING_ALLOWED=NO`) in CI, and record exact `WatchOS.sdk` Metal / `SpriteKit` (`SKMutableTexture`) availability annotations (hardware-free evidence for Open Question 12)
+- [ ] Build `watchos_ui` as a standalone Dart/Flutter package + HIG validator on Linux/Windows CI (independent of engine work)
 
 **Phases 1–2: Mode 1a desktop dev loop & debug tooling**
 - [ ] Real macOS desktop `WatchHost` + `WatchFrameStreamer`, Simulator `ws://` listener, `WatchInputInjector` tap round trip
