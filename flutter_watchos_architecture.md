@@ -28,7 +28,7 @@ The scope is comparable to `flutter_pi` (the community embedder for Raspberry Pi
 An independent community toolchain, [`flutter-watchos`](https://flutterwatch.dev), already exists. Per its documentation and website (not inspected or verified by us), it ships prebuilt profile/release engines behind GitHub sign-in and uses Impeller on Metal via an SDK overlay. This design pursues two distinct goals:
 
 1. **An open, public-API-only `embedder.h` runtime (Layer 2):** Built from official Flutter sources plus an open patch set, avoiding un-audited SDK overlays or opaque engine binaries.
-2. **Engine-agnostic `watchos_ui`, HIG validator, and Mode 1 tooling (Layer 1):** **Designed to run** on stock Flutter and target *any* watchOS engine underneath (`watchos_ui` is currently specified, not built).
+2. **Engine-agnostic `watchos_ui`, HIG validator, and Mode 1 tooling (Layer 1):** **Designed to run** on stock Flutter and target *any* watchOS engine underneath (a minimal, zero-Material/Cupertino v0.1 PoC now lives in [`packages/watchos_ui`](packages/watchos_ui) with Linux CI).
 
 Decoupling Layer 1 from Layer 2 means the UI constraint layer, validator, and remote preview tooling retain standalone value even if Layer 2 later targets an upstream or third-party watchOS engine.
 
@@ -77,9 +77,9 @@ Two incompatible answers to "who draws the pixels?" cannot share one pipeline, s
 
 > ⚠️ Must be specified before implementation: every other layer depends on its widget surface.
 
-Under Path A, `watchos_ui` is a constraint layer (enforced by the validator and lints), not a renderer limit. `WatchText` and `WatchButton` are ordinary widgets composed from real Flutter widgets. `watchos_ui` intentionally targets Apple Watch HIG directly rather than a generic `wearable_ui` abstraction (mirroring Flutter's `cupertino` vs. `material` split; see [docs/wearables-ui-strategy.md](docs/wearables-ui-strategy.md)).
+Under Path A, `watchos_ui` is a constraint layer (enforced by the validator and lints), not a renderer limit. `WatchOSButton` and `WatchOSProgressRing` are ordinary widgets built strictly on `package:flutter/widgets.dart` (`WatchOS*` avoids symbol collisions with a future `WearOS*` package, mirroring `Cupertino*` vs. `Material*`; plain `Text` inherits `WatchOSTheme` / `DefaultTextStyle`). `watchos_ui` intentionally targets Apple Watch HIG directly rather than a generic `wearable_ui` abstraction (mirroring Flutter's `cupertino` vs. `material` split; see [docs/wearables-ui-strategy.md](docs/wearables-ui-strategy.md)).
 
-**Root: `WatchApp`** (replaces `MaterialApp`): pure black `#000000` background, SF Compact default typography, no mobile-only gestures (long-press menus, Material ripple), page-based navigation.
+**Root: `WatchOSApp`** (replaces `MaterialApp` / `CupertinoApp`): pure black `#000000` default background, `WatchOSTheme` typography, no mobile-only gestures (long-press menus, Material ripple), page-based navigation.
 
 **Layout:** `Row`, `Column`, `Stack`, `Flex`, `Padding`, `SizedBox` are used as-is (spatial math only, no paint).
 
@@ -87,17 +87,17 @@ Under Path A, `watchos_ui` is a constraint layer (enforced by the validator and 
 
 | Widget | Constraint enforced | HIG rule |
 |---|---|---|
-| `WatchButton` | Minimum 44×44 pt touch target | Touch targets |
-| `WatchText` | Font 14–34 pt, SF Compact only, no inline spans | Typography |
-| `WatchProgressRing` | Standard activity-ring proportions | Progress |
-| `WatchDivider` | 1 pt, system gray | Layout |
-| `WatchImage` | Must reference a pre-bundled asset | Memory |
+| `WatchOSButton` | Minimum 44×44 pt touch target | Touch targets |
+| `WatchOSTextTheme` / `Text` | Watch-tuned typography tokens via `DefaultTextStyle` | Typography |
+| `WatchOSProgressRing` | Standard activity-ring proportions | Progress |
+| `WatchOSDivider` *(planned)* | 1 pt, system gray | Layout |
+| `WatchOSImage` *(planned)* | Must reference a pre-bundled asset | Memory |
 
 > ⚠️ The numeric limits (44×44 pt, 14–34 pt), `#000000` background lint, and HIG section names are conservative v0 defaults. Modern watchOS 10–27 uses rich tinted/material cards, captions under 14 pt, and large numerals over 34 pt, so font bounds and pure-black lints should be configurable or opt-in rather than hard errors.
 
-**Navigation (watchOS 27+; underlying SwiftUI APIs available since watchOS 10+):** `WatchPageScaffold` (horizontal pages, like Workout/Activity) and `WatchListScaffold` (vertical list driven by the Digital Crown). A push/pop `WatchHierarchicalRouter` is excluded from v0 as a scope decision; `NavigationStack` still exists on watchOS 10.
+**Navigation (watchOS 27+; underlying SwiftUI APIs available since watchOS 10+):** `WatchOSPageScaffold` (vertical by default for watchOS 10+, configurable axis) and `WatchOSListScaffold` (vertical list driven by the Digital Crown). A push/pop `WatchOSHierarchicalRouter` is excluded from v0 as a scope decision; `NavigationStack` still exists on watchOS 10.
 
-**Digital Crown:** a `WatchScrollPhysics` consumes Crown rotation deltas (from SwiftUI `.digitalCrownRotation`) to scroll `WatchListScaffold`. *Alternative for production:* hosting a hidden native SwiftUI `ScrollView` behind the Flutter surface (the approach reported by `flutter-watchos`) delegates inertia, rubber-banding, detent haptics, and the system Crown scroll indicator to watchOS directly instead of round-tripping detents through Dart.
+**Digital Crown:** a `WatchOSScrollPhysics` consumes Crown rotation deltas (from SwiftUI `.digitalCrownRotation`) to scroll `WatchOSListScaffold`. *Alternative for production:* hosting a hidden native SwiftUI `ScrollView` behind the Flutter surface (the approach reported by `flutter-watchos`) delegates inertia, rubber-banding, detent haptics, and the system Crown scroll indicator to watchOS directly instead of round-tripping detents through Dart.
 
 ---
 
@@ -425,7 +425,7 @@ Rules for Mode 2 (and the viewer in Mode 1). **None is implemented or measured y
 
 | # | Rule | Notes |
 |---|---|---|
-| 1 | **True-black background** (`#000000`) | Black OLED pixels draw essentially no power. `WatchApp` sets it; a lint flags off-black roots |
+| 1 | **True-black background** (`#000000`) | Black OLED pixels draw essentially no power. `WatchOSApp` sets it; a lint flags off-black roots |
 | 2 | **Frames only on invalidation** | No free-running display link or `TimelineView(.animation)`. By design; idle frame count (0 frames) verified in Mode 1 Dart tests only, engine path unmeasured |
 | 3 | **Always-On Display** | AOD hardware starts at Series 5; Series 4 has none. Read SwiftUI `scenePhase` and `isLuminanceReduced`; when luminance is reduced, hide or pause sub-second elements (seconds hands, spinners). The system limits AOD update rate itself. Exact app behaviour in AOD needs device testing |
 | 4 | **Damage-rect copy** | The embedder's software present callback delivers the whole surface, so the saving would be in copying only the changed region into the display buffer. Unmeasured |
@@ -453,7 +453,7 @@ Everything in this section is **unbuilt and unverified on physical hardware** un
 
 **Build:**
 1. Prove headless frame capture on the dev machine (Open Question 1)
-2. Implement `WatchText` and `WatchButton` on the real framework
+2. Wire `WatchOSButton` and `WatchOSTheme` / `Text` into the streamer demo
 3. Dart WebSocket server: `WatchFrameStreamer` sends a frame per produced frame
 4. watchOS Xcode project: SwiftUI Canvas + WebSocket listener + frame decoder
 5. Tap round trip: watch sends `TAP`, `WatchInputInjector` replays it, `setState`, button changes colour
@@ -476,7 +476,7 @@ Steps 1–6 target **Mode 1a (real macOS desktop host + Simulator)** with live h
 | Animations | Run inside Flutter; frames are streamed in dev |
 | Fonts | Flutter rasterizes its own text in both modes, so no cross-renderer parity is needed (parity is open only for Path B (`docs/display-list-research.md`), Open Question 4) |
 | Images | Pre-bundled in the `.watchapp` at build time |
-| Navigation | `WatchPageScaffold` + `WatchListScaffold` only (scope decision) |
+| Navigation | `WatchOSPageScaffold` + `WatchOSListScaffold` only (scope decision) |
 | Production runtime | Real Flutter engine on device via the embedder API |
 | Dev loop host | Simulator over loopback first, physical watch second |
 | Device floor & ABI | watchOS 27+ (SE 3, Series 9+, Ultra 2+; `arm64`-only per toolchains), trading away Series 6–8, SE 2, Ultra 1 (`arm64_32`) to avoid ILP32 Dart AOT risk |
@@ -621,11 +621,11 @@ The highest-risk unknowns (Apple compliance and on-device AOT runtime footprint)
 - [ ] Navigation model and Digital Crown scroll-physics contract
 - [x] Run `Q1` (`fml` + `shell/platform/embedder` C++20 syntax compile) and `Q3` (`engine_gap.py`) against `--sdk watchos` in CI, and verify `WatchOS.sdk` `Metal.h` / `CAMetalLayer` / `UIView` / `SpriteKit` (`SKMutableTexture`, `SpriteView`) compiler availability (`6adb57d`)
 - [ ] Extend `Q1` with full `third_party` header availability / static object linking under `--sdk watchos` (`CODE_SIGNING_ALLOWED=NO`)
-- [ ] Build `watchos_ui` as a standalone Dart/Flutter package + HIG validator on Linux/Windows CI (independent of engine work)
+- [x] Build minimal `watchos_ui` v0.1 PoC (`packages/watchos_ui`: `WatchOSApp`, `WatchOSButton`, `WatchOSPageScaffold`, `WatchOSListScaffold`, `WatchOSProgressRing`, `WatchOSHigChecker`, `WatchOSPreviewFrame`) + Linux CI
 
 **Phases 1–2: Mode 1a desktop dev loop & debug tooling**
 - [ ] Real macOS desktop `WatchHost` + `WatchFrameStreamer`, Simulator `ws://` listener, `WatchInputInjector` tap round trip
-- [ ] **Milestone 1a:** `WatchText` + `WatchButton` in the Simulator driven by a real desktop host, with live hot reload and sustained multi-frame animation streaming
+- [ ] **Milestone 1a:** `WatchOSButton` + `WatchOSProgressRing` in the Simulator driven by a real desktop host, with live hot reload and sustained multi-frame animation streaming
 - [ ] `ConstraintValidator` (render tree → violations), debug overlay, preview viewport, send gate that blocks critical violations
 - [ ] Measure and publish frame time, bandwidth, and tap-to-photon latency in Mode 1a
 - [ ] **Mode 1b (experimental / contributor-gated):** Evaluate HTTP (`URLSession.bytes` + local ATS behavior) or `WatchConnectivity` on physical hardware
