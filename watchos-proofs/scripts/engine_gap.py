@@ -223,10 +223,14 @@ def analyse(label, binary):
     try:
         dev_sdk = sdk_path("watchos")
         dev_syms, dev_installs = load_sdk(dev_sdk, "watchos")
+        dev_missing = [(s, f) for s, f in undef if s not in dev_syms]
         dev_only_missing_libs = [short(l) for l in libs if not l.startswith("@") and flat(l) in watch_installs and flat(l) not in dev_installs]
         dev_only_missing_syms = [f"{s} (in {f})" for s, f in undef if s in watch_syms and s not in dev_syms]
-        rl(f"Q3: [{label}] device SDK (watchos) vs watchsimulator delta: {len(dev_only_missing_libs)} extra missing libs, {len(dev_only_missing_syms)} extra missing syms"
-           + ("" if not dev_only_missing_syms else " e.g. " + ", ".join(dev_only_missing_syms[:8])))
+        sim_only_missing_syms = [f"{s} (in {f})" for s, f in undef if s not in watch_syms and s in dev_syms]
+        rl(f"Q3: [{label}] device SDK (watchos) direct check: {len(dev_missing)} of {len(undef)} missing; "
+           f"delta vs watchsimulator: +{len(dev_only_missing_libs)} libs, +{len(dev_only_missing_syms)} / -{len(sim_only_missing_syms)} syms")
+        if sim_only_missing_syms:
+            rl(f"Q3: [{label}]   present in watchos device SDK but missed in watchsimulator: " + ", ".join(sim_only_missing_syms[:8]))
     except subprocess.CalledProcessError:
         rl(f"Q3: [{label}] device SDK (watchos) not installed on this host")
 
@@ -274,7 +278,9 @@ def _header_facts(sdk_name="watchos"):
         ("Metal.h / MTLCreateSystemDefaultDevice", "objective-c", "#import <Metal/Metal.h>\nid f(void) { return MTLCreateSystemDefaultDevice(); }\n"),
         ("QuartzCore / CAMetalLayer", "objective-c", "#import <QuartzCore/QuartzCore.h>\nClass f(void) { return [CAMetalLayer class]; }\n"),
         ("UIKit / UIView", "objective-c", "#import <UIKit/UIKit.h>\nClass f(void) { return [UIView class]; }\n"),
-        ("SpriteKit / SKMutableTexture", "objective-c", "#import <SpriteKit/SpriteKit.h>\nSKMutableTexture *f(void) { return [SKMutableTexture textureWithSize:CGSizeMake(10, 10)]; }\n"),
+        ("SpriteKit / SKMutableTexture (ObjC initWithSize:)", "objective-c", "#import <SpriteKit/SpriteKit.h>\nSKMutableTexture *f(void) { return [[SKMutableTexture alloc] initWithSize:CGSizeMake(10, 10)]; }\n"),
+        ("SpriteKit / SKMutableTexture (Swift)", "swift", "import SpriteKit\nlet _ = SKMutableTexture(size: CGSize(width: 10, height: 10))\n"),
+        ("SpriteKit / SKTexture(data:size:) (Swift)", "swift", "import Foundation\nimport SpriteKit\nlet _ = SKTexture(data: Data(), size: CGSize(width: 10, height: 10))\n"),
         ("SwiftUI / SpriteView", "swift", "import SwiftUI\nimport SpriteKit\nlet _ = SpriteView.self\n"),
         ("CoreGraphics + CoreText", "objective-c", "#import <CoreGraphics/CoreGraphics.h>\n#import <CoreText/CoreText.h>\nvoid *f(void) { return (void *)&CGBitmapContextCreate; }\n"),
         ("WatchKit / WKCrownSequencer", "objective-c", "#import <WatchKit/WatchKit.h>\nClass f(void) { return [WKCrownSequencer class]; }\n"),
@@ -289,20 +295,14 @@ def _header_facts(sdk_name="watchos"):
         rl(f"Q3: [headers:{sdk_name}] {label} -> {res}")
 
 
-def _diagnose_libsystem(sdk_name="watchos"):
+def _diagnose_libsystem(sdk_name="watchsimulator"):
     try:
         sdk = sdk_path(sdk_name)
     except subprocess.CalledProcessError:
         return
     lib_tbd = os.path.join(sdk, "usr", "lib", "libSystem.B.tbd")
     sys_dir = os.path.join(sdk, "usr", "lib", "system")
-    rl(f"Q3: [diag:{sdk_name}] libSystem.B.tbd exists={os.path.exists(lib_tbd)} real={os.path.realpath(lib_tbd) if os.path.exists(lib_tbd) else '-'}")
-    if os.path.isdir(sys_dir):
-        tbds = sorted(fn for fn in os.listdir(sys_dir) if fn.endswith(".tbd"))
-        rl(f"Q3: [diag:{sdk_name}] usr/lib/system tbds ({len(tbds)}): " + ", ".join(tbds[:10]))
-    else:
-        rl(f"Q3: [diag:{sdk_name}] usr/lib/system is NOT a dir (exists={os.path.exists(sys_dir)})")
-
+    rl(f"Q3: [diag:{sdk_name}] libSystem.B.tbd exists={os.path.exists(lib_tbd)}; usr/lib/system exists={os.path.isdir(sys_dir)}")
     if os.path.exists(lib_tbd):
         try:
             with open(lib_tbd, encoding="utf-8", errors="replace") as f:
@@ -311,7 +311,6 @@ def _diagnose_libsystem(sdk_name="watchos"):
                 rl(f"Q3: [diag:{sdk_name}]   libSystem.B.tbd: {ln[:140]}")
         except OSError:
             pass
-
     targets = ("___error", "_chdir", "__exit")
     hits = {t: [] for t in targets}
     for p in _walk_tbds(sdk):
@@ -341,7 +340,7 @@ def api_facts():
     _log_api_facts("watchsimulator", "watchos")
     _log_api_facts("watchos", "watchos")
     _header_facts("watchos")
-    _diagnose_libsystem("watchos")
+    _diagnose_libsystem("watchsimulator")
 
 
 if __name__ == "__main__":

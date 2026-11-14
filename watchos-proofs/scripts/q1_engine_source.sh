@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Q1 — facts from the REAL engine source (at the exact engine version of this Flutter SDK), and a compile test:
-# does the engine's own base layer (fml) compile for watchOS? Also fetches embedder.h for Q5.
+# Q1 — facts from the REAL engine source (at the exact engine version of this Flutter SDK), and compile tests:
+# checks fml and shell/platform/embedder against BOTH watchsimulator and real watchos device SDK. Also fetches embedder.h for Q5.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 rl() { mkdir -p /tmp/watch_proofs; echo "$*" >> /tmp/watch_proofs/results.log; echo "$*"; }
@@ -36,18 +36,43 @@ echo '#include <TargetConditionals.h>' | xcrun --sdk watchsimulator clang -E -dM
   -isysroot "$(xcrun --sdk watchsimulator --show-sdk-path)" -x c - 2>/dev/null \
   | grep -E "define TARGET_OS_(IPHONE|IOS|WATCH|SIMULATOR|OSX|MAC) " | sort | sed 's/#define /Q1:   /' | tee -a /tmp/watch_proofs/results.log
 
-echo "== compile the engine's fml base layer for the watchOS Simulator (syntax-only, C++20 as the engine requires) =="
+rl "Q1: how Apple's headers describe a watchOS device target (TargetConditionals.h):"
+echo '#include <TargetConditionals.h>' | xcrun --sdk watchos clang -E -dM -target arm64-apple-watchos10.0 \
+  -isysroot "$(xcrun --sdk watchos --show-sdk-path)" -x c - 2>/dev/null \
+  | grep -E "define TARGET_OS_(IPHONE|IOS|WATCH|SIMULATOR|OSX|MAC) " | sort | sed 's/#define /Q1:   /' | tee -a /tmp/watch_proofs/results.log
+
+run_syntax_suite() {
+  local label="$1" sdk="$2" list_file="$3" res_file="$4"
+  local total ok fail unavail missing
+  total=$(wc -l < "$list_file" | tr -d ' ')
+  xargs -P 3 -I{} bash "$ROOT/scripts/syntax_check_one.sh" "$SRC" {} "$sdk" < "$list_file" > "$res_file"
+  ok=$(grep -c '^OK|' "$res_file" || true)
+  fail=$(grep -c '^FAIL|' "$res_file" || true)
+  unavail=$(grep '^FAIL|' "$res_file" | grep -ciE "unavailable|not available on watchOS|is not supported" || true)
+  missing=$(grep '^FAIL|' "$res_file" | grep -ciE "file not found" || true)
+  rl "Q1: $label ($sdk): $total checked, $ok compile, $fail fail ($unavail unavailable API, $missing missing external header)"
+  grep '^FAIL|' "$res_file" | grep -viE "file not found" | head -n 10 | while IFS='|' read -r _ file err; do
+    rl "Q1:   API/COMPILE FAIL ${file#$SRC/engine/src/}: $err"
+  done
+  grep '^FAIL|' "$res_file" | grep -iE "file not found" | head -n 6 | while IFS='|' read -r _ file err; do
+    rl "Q1:   MISSING HEADER ${file#$SRC/engine/src/}: $err"
+  done
+}
+
+echo "== compile fml for watchsimulator and watchos device SDK (syntax-only, C++20) =="
 find "$E/fml" \( -name '*.cc' -o -name '*.mm' \) \
   -not -name '*_unittest*' -not -name '*_benchmark*' -not -path '*/testing/*' \
   -not -path '*/platform/android/*' -not -path '*/platform/fuchsia/*' -not -path '*/platform/linux/*' -not -path '*/platform/win/*' \
   | sort > /tmp/fml_files.txt
-TOTAL=$(wc -l < /tmp/fml_files.txt | tr -d ' ')
-xargs -P 3 -I{} bash "$ROOT/scripts/syntax_check_one.sh" "$SRC" {} < /tmp/fml_files.txt > /tmp/fml_results.txt
-OK=$(grep -c '^OK|' /tmp/fml_results.txt); FAIL=$(grep -c '^FAIL|' /tmp/fml_results.txt)
-UNAVAIL=$(grep '^FAIL|' /tmp/fml_results.txt | grep -ciE "unavailable|not available on watchOS|is not supported")
-MISSING=$(grep '^FAIL|' /tmp/fml_results.txt | grep -ciE "file not found")
-rl "Q1: fml files: $TOTAL checked, $OK compile for watchOS, $FAIL fail ($UNAVAIL because an API is unavailable on watchOS, $MISSING because of a missing header from outside the sampled source)"
-grep '^FAIL|' /tmp/fml_results.txt | head -n 12 | while IFS='|' read -r _ file err; do rl "Q1:   FAIL ${file#$SRC/engine/src/}: $err"; done
+run_syntax_suite "fml files" "watchsimulator" /tmp/fml_files.txt /tmp/fml_results_sim.txt
+run_syntax_suite "fml files" "watchos" /tmp/fml_files.txt /tmp/fml_results_dev.txt
+
+echo "== compile shell/platform/embedder for watchos device SDK (syntax-only, C++20) =="
+find "$E/shell/platform/embedder" \( -name '*.cc' -o -name '*.mm' \) \
+  -not -name '*_unittests*' -not -name '*_unittest*' -not -name '*_benchmarks*' -not -path '*/tests/*' -not -path '*/test_fixtures/*' \
+  | sort > /tmp/embedder_files.txt
+run_syntax_suite "embedder files" "watchos" /tmp/embedder_files.txt /tmp/embedder_results_dev.txt
+
 rl "Q1: target_os list in tools/gn: android, ios, mac, linux, fuchsia, wasm, win, qnx (watchos absent)"
 rl "Q1: precedent: qnx is software-only embedder profile (Skia GPU backends off, arm64 only)"
 DART_REV=$(cat "$FLUTTER_ROOT/bin/internal/dart-sdk.version" 2>/dev/null || echo "3.14.0")
