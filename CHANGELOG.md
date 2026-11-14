@@ -1,5 +1,13 @@
 # Changelog
 
+## November 2026 — On-device hot reload research candidate & hardware probe gate
+- Added "On-device hot reload (research candidate, unbuilt)" under Two-Mode Architecture: the two physical-watch blockers (no JIT, TN3135 transport), a Mode 1b / Option C / Option A comparison, upstream dependencies (Dart #61635, `dart2bytecode`, `dynamic_modules`), Shorebird's iOS interpreter as precedent (and why it is not hot reload), and the Mac-side VM-service adapter that an on-device loop would need (hypothesis).
+- Updated the "No JIT on device" constraint and the production hot-reload cell to point at that route without claiming it exists.
+- Added a "Transfers to a physical watch?" column to the Capability verification summary so Simulator-only evidence is not read as hardware evidence.
+- Added Gate 0d (contributor-run physical-watch probe: JIT test, blocked-socket checks, `URLSession.bytes` throughput/latency, `.local` resolution, `WCSession`, decode time, memory), a Metal SDK-annotation check in Phase 0, and Phase 6 (on-device hot reload, depends on upstream).
+- Added Open Question 13, a Resolved Decisions row, a note on baking the host address at run time, and references for #61635, the JIT-on-iOS issues and Shorebird.
+- No tested code blocks, measured numbers or CI steps were changed.
+
 ## November 2026 — Reorganization, Audit Fixes & Platform Gates (supersedes v9.1)
 - Renamed `flutter_watchos_architecture_v9_1.md` to `flutter_watchos_architecture.md` (`Status: Draft`) and dropped version numbers from the main spec header.
 - Split Appendix A into `docs/display-list-research.md`, `Future Horizon (wearos_ui)` into `docs/wearables-ui-strategy.md`, and version history into `CHANGELOG.md`.

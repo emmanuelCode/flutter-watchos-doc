@@ -42,7 +42,7 @@ Decoupling Layer 1 from Layer 2 means the UI constraint layer, validator, and re
 | No UIKit | WatchKit + SwiftUI only |
 | Memory | **~30 MB is an unverified working ceiling** pending real-watch RSS and jetsam measurement. As an **illustrative floor only** (excluding Dart heap, glyph caches, engine code pages, and OS overhead), our artifact check measured `icudtl.dat` at 844 KB and dual `208×248 @2x` RGBA framebuffers at ~1.6 MB (compared to the 23.1 MB debug `kernel_blob.bin` stripped by AOT). Primary production feasibility risk to validate per device |
 | Skia CPU deprecation | Path A's boundary is `embedder.h` (`FlutterRendererConfig`), not Skia CPU permanently. Because Impeller provides no software/CPU backend as of late 2026, if upstream removes Skia's software rasterizer our two contingencies are: **(A)** pin Skia's minimal CPU subset behind `FlutterSoftwareRendererConfig` in our patch set, or **(B)** swap to `FlutterMetalRendererConfig` / `SpriteView` (`SKMutableTexture`) if the compliance gate clears it—requiring zero changes to `watchos_ui` or Dart code (Open Question 12) |
-| No JIT on device | On-device Dart must be AOT-compiled, so there is no on-device hot reload. AOT output still carries a Dart runtime (GC etc.) |
+| No JIT on device | On-device Dart must be AOT-compiled, so there is no on-device hot reload today. AOT output still carries a Dart runtime (GC etc.). The only known route to on-device reload is an interpreter for changed code (what Shorebird does on iOS, and what Dart's modular-AOT + bytecode work aims at); neither supports watchOS today (see [On-device hot reload](#on-device-hot-reload-research-candidate-unbuilt)) |
 | No dynamic code | Apple restricts downloading and executing executable code at runtime (App Review Guideline 2.5.2, subject to narrow exceptions) |
 | Background limits & TN3135 | The OS suspends background work aggressively; any dev listener must stay in a foreground session. Furthermore, per Apple TN3135 (*Low-level networking on watchOS*), `URLSessionWebSocketTask`, `URLSessionStreamTask`, `NWConnection`, `NWBrowser` (Bonjour), `NSNetService`, and BSD sockets are blocked on physical watches (watchOS 9+) outside active audio streaming or CallKit VoIP, while the Simulator always allows them (`ws://` is Simulator-only) |
 | Screen sizes | 40 mm & 44 mm (Apple Watch SE 3; provisional pending HIG verification) · 41 mm → 176×215 pt · 42 mm → 187×223 pt · 45 mm → 198×242 pt · 46 mm → 208×248 pt · 49 mm Ultra → 205×251 pt (CI Simulator device is 46 mm; current checks run at 45 mm; 42/46 mm specs per Apple Series 10 HIG) |
@@ -125,7 +125,7 @@ Two hosts, same Mac-side renderer contract:
 - **1b: physical watch (EXPERIMENTAL, unverified).** Per Apple TN3135, `URLSessionWebSocketTask` and `NWBrowser` (Bonjour) are blocked on physical watches outside active audio/VoIP sessions. Candidate transports, both **untested on hardware**:
   - **(a) HTTP via `URLSession.bytes`:** Chunked HTTP response for frames + HTTP POST for input. Known risks: developer reports of `URLSession` failing on a watch with no internet beyond a local router, plus unverified ATS behavior for local cleartext HTTP on watchOS.
   - **(b) `WatchConnectivity` via paired iPhone:** Requires an iPhone companion app; frame-streaming throughput unknown.
-  - Host address must be baked into the debug build or delivered via the paired iPhone (no `NWBrowser`, no QR scanning or manual typing on the watch). Any dev server must require a pairing/auth token so LAN peers cannot view streamed UI, and be excluded from release builds with `#if DEBUG`.
+  - Host address must be baked into the debug build or delivered via the paired iPhone (no `NWBrowser`, no QR scanning or manual typing on the watch). The natural place to bake it is the run command itself, since the Mac knows its own address when the build starts. Any dev server must require a pairing/auth token so LAN peers cannot view streamed UI, and be excluded from release builds with `#if DEBUG`.
 
 Dev loop (Mode 1a target): save in VS Code → Dart VM hot reloads → Flutter produces a frame → interceptor validates → frame pushed to the watch → tap returns → inject → `setState` → repeat. Target: **≤ 300 ms from save or tap to updated pixels** (hypothesis anchored to interactive UI feedback latency; unmeasured).
 
@@ -146,7 +146,7 @@ Runtime: Swift host starts engine with AOT snapshot → engine renders → prese
 |---|---|---|
 | Engine | On the Mac (stock Dart VM) | On the watch (AOT, embedder API) |
 | Output to watch | Rendered frames over WebSocket | Present callback → SwiftUI, in-process |
-| Hot reload | ✅ (watch driven from the Mac) | ❌ (no JIT on device) |
+| Hot reload | ✅ (watch driven from the Mac) | ❌ (no JIT on device; interpreter route is research only) |
 | Server / Mac needed | Yes | No |
 | App Store | ❌ | ✅ (to be validated) |
 
@@ -163,6 +163,29 @@ Runtime: Swift host starts engine with AOT snapshot → engine renders → prese
 | Pixel parity (fonts, colour)? | ❌ rendered on Mac | ❌ rendered on Mac | ✅ |
 
 > ⚠️ Mode 1 is a layout-and-logic loop plus a remote display. Its measurements must not be cited as evidence for production memory, speed or visual parity.
+
+### On-device hot reload (research candidate, unbuilt)
+
+Mode 1 is the only dev loop with evidence behind it, and on a physical watch it is only a remote display. This subsection records what a loop that runs Dart *on* the watch would need. **Nothing here is built or tested, and it is not part of Phases 1–5.**
+
+A physical watch has two independent blockers: **execution** (no JIT, so stock Dart hot reload cannot run there) and **transport** (TN3135 blocks WebSocket and other low-level networking, leaving HTTP/HTTPS via `URLSession`). Any design has to clear both.
+
+| Option | What runs where | Hot reload on a physical watch? | Status |
+|---|---|---|---|
+| **Mode 1b** (remote display) | Dart VM on the Mac; frames to the watch over HTTP | Yes, as a remote display, if the transport works | Untested on hardware |
+| **Option C** | JIT engine in the Simulator for fast iteration; `--profile` AOT builds installed on the watch | No: the physical watch gets rebuilds, not reloads | Same split flutter-watchos reports; no new research needed |
+| **Option A** | Interpreter on the watch runs changed code (bytecode deltas) pushed over `URLSession` HTTP(S) | Yes, in principle | Depends on upstream work; unbuilt |
+
+**What exists upstream and what it implies**
+- **Dart [#61635](https://github.com/dart-lang/sdk/issues/61635)** is an umbrella issue for a modular AOT compiler for development on iOS, motivated by JIT becoming harder to use there (flutter/flutter#163984, #175962). Its stated direction is a bytecode interpreter for debugging and hot reload. It targets iOS/arm64, not watchOS. The `dart2bytecode` package is described as experimental and not part of the Dart SDK, and `pkg/dynamic_modules` describes an interpreter-based approach for environments where JIT is not feasible.
+- **Shorebird** documents the same pattern in production on iOS: unchanged code runs from the AOT build and functions changed by a patch run in a purpose-built Dart interpreter, because Apple only allows downloaded code that is interpreted. This is precedent that the interpreter route is workable on Apple platforms. It is **not** hot reload: patches replace code between launches, it relies on a forked Flutter/Dart toolchain, and its documented platforms do not include watchOS.
+- **A watchOS port is the missing piece:** the Dart VM and interpreter would have to run on watchOS first (Open Question 9), then reload deltas would have to be delivered over HTTP.
+
+**Reload is more than code delivery (design hypothesis, unverified).** The `flutter` tool drives hot reload through the Dart VM service, which uses WebSocket. A watch cannot host that connection, so Option A would need a Mac-side adapter that presents an ordinary WebSocket VM service to the tool while the watch connects *outbound* over HTTP (long-poll or chunked stream) and receives bytecode deltas. This component does not exist.
+
+**Compliance boundary.** The reload receiver and interpreter would be `#if DEBUG` development tooling installed from a developer machine; release builds are AOT-only and contain no reload endpoint (Guideline 2.5.2 applies to what ships). This should be confirmed with Apple before relying on it.
+
+**What would turn this from idea into evidence** (all need hardware: see Gate 0d): proof that the JIT restriction applies on a physical watch as assumed, proof that `URLSession` streaming reaches a Mac on the LAN, and measured latency and throughput.
 
 ---
 
@@ -366,7 +389,7 @@ struct WatchFrameView: View {
 }
 ```
 
-The frame is stretched to fill the view (verified in off-screen SwiftUI render tests), so it fits whatever `pixelRatio` was captured. That is only correct when the captured boundary has the same aspect ratio as the view: size the boundary to the watch's logical screen. Updated pixels on publish were tested with an off-screen `ImageRenderer` (logging rather than asserting `invalidated`), not yet on a live screen.
+The frame is stretched to fill the view (verified in off-screen SwiftUI render tests), so it fits whatever `pixelRatio` was captured. That is only correct when the captured boundary has the same aspect ratio as the view: size the boundary to the watch's logical screen. Updated pixels on publish were tested with an off-screen `ImageRenderer` (asserting `invalidated` on `objectWillChange`), not yet on a live screen.
 
 > Avoid `TimelineView(.animation)` here: it ticks at display rate even when nothing changed, a real battery cost. Add a `TimelineView` only for continuous local animation.
 
@@ -450,6 +473,7 @@ Steps 1–6 target **Mode 1a (real macOS desktop host + Simulator)** with live h
 | Frame rate | 30 fps burst throughput (≤ 33 ms per invalidated frame): a hypothesis, to be measured (idle behavior by design; idle frame count verified in Mode 1 Dart tests only, engine path unmeasured) |
 | Frame encoding (dev) | Full-frame zlib; XOR-delta rejected for now. Provisional until worst-case content is measured |
 | Late-joining client | Call `captureNow()` on connect / resync |
+| On-device hot reload | Not pursued in Phases 1–5. Interpreter route tracked as a research candidate (Open Question 13, Phase 6) |
 | Dart ↔ Swift interop | Dart FFI with `@_cdecl`, for Path B (`docs/display-list-research.md`) only (not needed for Path A rendering) |
 
 ---
@@ -462,13 +486,13 @@ Latest environment: macOS arm64 runner, Xcode 26.6, watchOS 26.5 Simulator, Flut
 
 ### Capability verification summary
 
-| Capability | Status & Scope | Notes / Limits |
-|---|---|---|
-| **Watch-side SwiftUI renderer** (`WatchFrameStore`, `WatchFrameView`) | Tested in Simulator | Compiles for watchOS; RGBA → `CGImage` → `Canvas` renders stretched to fill; off-screen `ImageRenderer` confirms pixel updates on publish (does not prove live hardware screen invalidation) |
-| **Headless Dart frame capture & input** (`WatchFrameStreamer`, `WatchInputInjector`) | Tested in `flutter test` | Captures raw RGBA with no window; `captureNow()` pushes current frame from an idle app; `stop()` and mid-capture coalescing verified; injected taps trigger `setState()` |
-| **Loopback WebSocket transport** | Tested in Simulator | Dart server → watchOS Simulator client sends 192 KB frame down and tap up (first frame incl. handshake: 120–259 ms across runs). Passes because Simulator allows low-level networking per Apple TN3135; **not** valid evidence for physical watch `ws://` |
-| **End-to-end dev loop** (Streamer + Injector ↔ WebSocket ↔ SwiftUI View) | Tested in Simulator | On connect `captureNow()` pushed frame 0 (red); tap at (99, 121) returned; frame 1 arrived (green). Host side ran inside `flutter test`, not a real macOS desktop app; no hot reload or sustained multi-frame animation tested |
-| **Path B display-list fixtures** | Tested with stand-ins | Anchor fix (`.topLeading`), triple-buffer mailbox, Dart-to-Swift byte parsing, `@_cdecl` `dlsym` lookup, and `WatchCanvasView` (`DRAW_RECT`) pass; `ZeroCopyCanvas` and `DRAW_TEXT` remain unverified |
+| Capability | Status & Scope | Notes / Limits | Transfers to a physical watch? |
+|---|---|---|---|
+| **Watch-side SwiftUI renderer** (`WatchFrameStore`, `WatchFrameView`) | Tested in Simulator | Compiles for watchOS; RGBA → `CGImage` → `Canvas` renders stretched to fill; off-screen `ImageRenderer` confirms pixel updates on publish (does not prove live hardware screen invalidation) | Partly: compiles and decodes; on-screen timing and invalidation do not |
+| **Headless Dart frame capture & input** (`WatchFrameStreamer`, `WatchInputInjector`) | Tested in `flutter test` | Captures raw RGBA with no window; `captureNow()` pushes current frame from an idle app; `stop()` and mid-capture coalescing verified; injected taps trigger `setState()` | Yes: runs on the Mac in Mode 1 |
+| **Loopback WebSocket transport** | Tested in Simulator | Dart server → watchOS Simulator client sends 192 KB frame down and tap up (first frame incl. handshake: 120–259 ms across runs). Passes because Simulator allows low-level networking per Apple TN3135; **not** valid evidence for physical watch `ws://` | No: Simulator-only (TN3135) |
+| **End-to-end dev loop** (Streamer + Injector ↔ WebSocket ↔ SwiftUI View) | Tested in Simulator | On connect `captureNow()` pushed frame 0 (red); tap at (99, 121) returned; frame 1 arrived (green). Host side ran inside `flutter test`, not a real macOS desktop app; no hot reload or sustained multi-frame animation tested | Partly: logic and rendering yes; transport no |
+| **Path B display-list fixtures** | Tested with stand-ins | Anchor fix (`.topLeading`), triple-buffer mailbox, Dart-to-Swift byte parsing, `@_cdecl` `dlsym` lookup, and `WatchCanvasView` (`DRAW_RECT`) pass; `ZeroCopyCanvas` and `DRAW_TEXT` remain unverified | Partly: parsing yes; performance no |
 
 *(The dev-loop harness checks above are reported separately from the retagged engine smoke test below; CI setup and extraction helper steps are excluded from capability counts.)*
 
@@ -492,7 +516,7 @@ Full-frame zlib shrank test frames ≈ 180–195× (≈ 31 KB/s at 1.0, ≈ 118 
 ### Known test limitations (open)
 
 1. **SDK gap script (`libSystem` false positives):** `engine_gap.py` flags basic `libSystem` symbols (`_bzero`, `___error`) as missing on watchOS; only framework-level gaps are reliable.
-2. **Off-screen redraw assertions:** The SwiftUI redraw tests verify updated pixel colors via off-screen `ImageRenderer`, but only log `invalidated` without asserting it; this does not prove live on-screen SwiftUI invalidation on watchOS hardware.
+2. **Off-screen redraw assertions:** The SwiftUI redraw tests assert `objectWillChange` invalidation and verify updated pixel colors via off-screen `ImageRenderer`, which does not prove live on-screen SwiftUI invalidation on watchOS hardware.
 3. **Unexercised `WatchHost`:** Mode 1 has not run in a real macOS desktop host (`flutter test` stood in), with live hot reload, or under sustained multi-frame streaming (the E2E check sent two frames).
 4. **Geometry drift across tests:** CI boots a 46 mm Simulator (`208×248 pt`), whereas the loopback, E2E, and engine smoke tests render `198×242` (45 mm) and headless Dart capture tests run on `flutter test`'s `800×600` surface.
 
@@ -559,6 +583,7 @@ This concerns Open Question 9 and is a starting point for anyone building a full
 10. **Simulator networking / CI.** *Answered for Simulator loopback: yes.* The watchOS Simulator allows `ws://` loopback and hosted runners ship a watchOS runtime. On physical watches, Apple TN3135 blocks `URLSessionWebSocketTask` and `NWBrowser` outside active audio/VoIP sessions (`ws://` is Simulator-only).
 11. **Frame-transport budget.** Which mix of pixel ratio, diffs, zlib and capture-rate cap fits 30 fps, over loopback and then real Wi-Fi? *Partly answered (sustained loopback test):* zlib gives ≈ 1 KB / 3.9 KB per mostly-static frame. Open: busy content, real Wi-Fi, decode time on a watch.
 12. **GPU rendering, CPU rasterization and API compliance.** flutter-watchos reports Impeller on Metal through an SDK overlay that supplies a Metal framework the watchOS SDK does not declare. Whether Apple accepts that is unknown here, so this design stays on the public-API software path. Open: whether a public-API route to GPU rasterization (`FlutterMetalRendererConfig` or `SpriteView` / `SKMutableTexture`) passes App Store Connect validation, pinning Skia's minimal CPU subset behind `FlutterSoftwareRendererConfig` if Skia is removed upstream, and the frame-time and battery cost of CPU rasterization on real devices.
+13. **On-device hot reload and physical-watch transport.** Does the JIT restriction apply on a physical watch as assumed, and does `URLSession` streaming reach a Mac on the LAN (including a router with no internet, and `.local` resolution)? Longer term: can an interpreter-based reload path (Dart #61635 direction, Shorebird-style interpreter) run on watchOS, and what Mac-side adapter would let the `flutter` tool reload over HTTP? See [On-device hot reload](#on-device-hot-reload-research-candidate-unbuilt).
 
 ---
 
@@ -576,10 +601,15 @@ The highest-risk unknowns (Apple compliance and on-device AOT runtime footprint)
 **Gate 0c: On-device runtime & memory spike (Open Question 9)** *(Needs: build machine beyond the 3-core/60-min hosted CI limit + physical watch hardware — first ask for contributors)*
 - [ ] Build Dart VM + `gen_snapshot` (`tools/gn.py --os watchos`) and measure on-device binary size, AOT `hello_world` RSS memory, and watchOS jetsam headroom
 
+**Gate 0d: Physical-watch probe (Open Questions 10, 11, 13)** *(Needs: physical watch + Mac + Xcode signing; contributor-run)*
+- [ ] Write a small watchOS probe app (not yet written) that prints one paste-ready result block: `mmap(MAP_JIT)` / `mprotect(PROT_EXEC)` attempt; BSD socket, `NWConnection` and `URLSessionWebSocketTask` blocked-or-not; `URLSession.bytes` latency and throughput to a Mac on the LAN, including a router with no internet; `.local` resolution; `WCSession` throughput; RGBA/zlib decode time; Mach resident memory
+- [ ] Publish contributor results next to the CI results, labelled by device model and watchOS version
+
 **Phase 0: `watchos_ui` specification & Simulator CI spikes**
 - [x] macOS Simulator CI workflow & spikes (SwiftUI renderer, headless Dart capture, Simulator `ws://` loopback, Path B fixtures, retagged engine smoke test)
 - [ ] Full widget catalog and `WatchConstraintProfile` for all seven display sizes (`40, 41, 42, 44, 45, 46, 49 mm`)
 - [ ] Navigation model and Digital Crown scroll-physics contract
+- [ ] Extend the SDK gap check to record whether the watchOS SDK ships a Metal framework and how its headers are availability-annotated (hardware-free evidence for Open Question 12)
 
 **Phases 1–2: Mode 1a desktop dev loop & debug tooling**
 - [ ] Real macOS desktop `WatchHost` + `WatchFrameStreamer`, Simulator `ws://` listener, `WatchInputInjector` tap round trip
@@ -600,6 +630,11 @@ The highest-risk unknowns (Apple compliance and on-device AOT runtime footprint)
 
 **Phase 5: App Store pipeline**
 - [ ] Xcode Watch-only target (`WKWatchOnly` / `WKApplication`) or CLI iOS-stub `.ipa` packaging (`ITSWatchOnlyContainer` / `LSApplicationLaunchProhibited`, unverified), signing/provisioning, submission validation, example app, and docs
+
+**Phase 6: On-device hot reload (research, depends on upstream)**
+- [ ] Track Dart #61635 and `dynamic_modules`; evaluate a watchOS Dart VM + interpreter once Open Question 9 is answered
+- [ ] Prototype the Mac-side VM-service adapter against Mode 1b's HTTP transport
+
 ---
 
 ## Related Work
@@ -631,6 +666,8 @@ All of this is taken from those public pages. The site describes the profile and
 - Apple Technical Note TN3135, *Low-level networking on watchOS*: https://developer.apple.com/documentation/technotes/tn3135-low-level-networking-on-watchos
 - Apple Technical Note TN3179, *Understanding local network privacy*: https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy
 - Apple `NSAllowsLocalNetworking` (lists iOS, iPadOS, macOS, visionOS; watchOS not listed): https://developer.apple.com/documentation/bundleresources/information-property-list/nsapptransportsecurity/nsallowslocalnetworking
+- Dart modular AOT for iOS development (#61635): https://github.com/dart-lang/sdk/issues/61635 · JIT-on-iOS issues: https://github.com/flutter/flutter/issues/163984, https://github.com/flutter/flutter/issues/175962 · `pkg/dynamic_modules`: https://github.com/dart-lang/sdk/tree/main/pkg/dynamic_modules
+- Shorebird, how Code Push works (interpreter on iOS): https://docs.shorebird.dev/code-push/system-architecture
 - SwiftUI Canvas: https://developer.apple.com/documentation/swiftui/canvas · GraphicsContext: https://developer.apple.com/documentation/swiftui/graphicscontext
 - flutter-watchos: https://flutterwatch.dev (docs: https://github.com/flutterwatch/flutter-watchos/blob/main/doc/get-started.md) · https://github.com/flutterwatch/flutter-watchos · article: https://itnext.io/yes-you-can-build-apple-watch-apps-with-flutter-now-909c3dc84804
 - GitHub-hosted macOS runners: https://docs.github.com/en/actions/using-github-hosted-runners/using-github-hosted-runners/about-github-hosted-runners
