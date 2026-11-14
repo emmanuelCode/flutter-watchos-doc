@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Dependency-gap analysis: which imports of a Mach-O binary does the watchOS SDK NOT provide?
-Usage: engine_gap.py <label> <binary>        (imported by make_stubs.py as a module)
-Everything is derived from Apple's SDK .tbd stubs and `nm`/`otool`; nothing is guessed."""
+Usage: engine_gap.py <label> <binary> | --api-facts    (imported by make_stubs.py as a module)
+Everything is derived from Apple's SDK .tbd stubs, clang/swiftc headers, and `nm`/`otool`."""
 import collections, json, os, re, subprocess, sys
 
 RL = "/tmp/watch_proofs/results.log"
@@ -121,16 +121,27 @@ def parse_tbd(text, syms, installs, platform=None):
                 _add_tokens(key, body, syms)
 
 
-def load_sdk(sdk, platform=None):
-    syms, installs = set(), set()
-    for root, _dirs, files in os.walk(sdk):
+def _walk_tbds(sdk):
+    seen = set()
+    for root, dirs, files in os.walk(sdk, followlinks=True):
+        real = os.path.realpath(root)
+        if real in seen:
+            dirs[:] = []
+            continue
+        seen.add(real)
         for fn in files:
             if fn.endswith(".tbd"):
-                try:
-                    with open(os.path.join(root, fn), encoding="utf-8", errors="replace") as f:
-                        parse_tbd(f.read(), syms, installs, platform)
-                except OSError:
-                    pass
+                yield os.path.join(root, fn)
+
+
+def load_sdk(sdk, platform=None):
+    syms, installs = set(), set()
+    for path in _walk_tbds(sdk):
+        try:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                parse_tbd(f.read(), syms, installs, platform)
+        except OSError:
+            pass
     return syms, installs
 
 
@@ -173,7 +184,7 @@ def short(libpath):
     return re.sub(r"(\.[0-9A-Z]+)+$", "", name)
 
 
-KEY_APIS = [  # (what, symbol) — direct facts about what the watchOS SDK exports for the watchOS target
+KEY_APIS = [  # (what, symbol) — direct .tbd facts for the watchOS linker target
     ("UIView", "_OBJC_CLASS_$_UIView"), ("UIViewController", "_OBJC_CLASS_$_UIViewController"),
     ("UIScreen", "_OBJC_CLASS_$_UIScreen"), ("UIApplication", "_OBJC_CLASS_$_UIApplication"),
     ("UITouch", "_OBJC_CLASS_$_UITouch"), ("UIImage", "_OBJC_CLASS_$_UIImage"),
@@ -235,9 +246,102 @@ def _log_api_facts(sdk_name, platform):
     rl(f"Q3: [{sdk_name}] key APIs NOT exported for {platform}: " + (", ".join(lack) or "none"))
 
 
+def _compile_probe(sdk_name, lang, code):
+    try:
+        sdk = sdk_path(sdk_name)
+    except subprocess.CalledProcessError:
+        return "SDK missing"
+    if lang == "swift":
+        target = "arm64-apple-watchos10.0-simulator" if "sim" in sdk_name else "arm64-apple-watchos10.0"
+        cmd = ["xcrun", "--sdk", sdk_name, "swiftc", "-target", target, "-typecheck", "-"]
+    else:
+        min_flag = "-mwatchos-simulator-version-min=10.0" if "sim" in sdk_name else "-mwatchos-version-min=10.0"
+        cmd = ["xcrun", "--sdk", sdk_name, "clang", "-arch", "arm64", min_flag, "-isysroot", sdk, "-x", lang]
+        if lang == "objective-c":
+            cmd.append("-fobjc-arc")
+        cmd += ["-fsyntax-only", "-"]
+    p = subprocess.run(cmd, input=code, text=True, capture_output=True)
+    if p.returncode == 0:
+        return "OK"
+    err = next((ln.strip() for ln in p.stderr.splitlines() if "error:" in ln), "")
+    if not err:
+        err = (p.stderr.strip().splitlines() or ["failed"])[-1]
+    return f"FAIL ({err[:140]})"
+
+
+def _header_facts(sdk_name="watchos"):
+    probes = [
+        ("Metal.h / MTLCreateSystemDefaultDevice", "objective-c", "#import <Metal/Metal.h>\nid f(void) { return MTLCreateSystemDefaultDevice(); }\n"),
+        ("QuartzCore / CAMetalLayer", "objective-c", "#import <QuartzCore/QuartzCore.h>\nClass f(void) { return [CAMetalLayer class]; }\n"),
+        ("UIKit / UIView", "objective-c", "#import <UIKit/UIKit.h>\nClass f(void) { return [UIView class]; }\n"),
+        ("SpriteKit / SKMutableTexture", "objective-c", "#import <SpriteKit/SpriteKit.h>\nSKMutableTexture *f(void) { return [SKMutableTexture textureWithSize:CGSizeMake(10, 10)]; }\n"),
+        ("SwiftUI / SpriteView", "swift", "import SwiftUI\nimport SpriteKit\nlet _ = SpriteView.self\n"),
+        ("CoreGraphics + CoreText", "objective-c", "#import <CoreGraphics/CoreGraphics.h>\n#import <CoreText/CoreText.h>\nvoid *f(void) { return (void *)&CGBitmapContextCreate; }\n"),
+        ("WatchKit / WKCrownSequencer", "objective-c", "#import <WatchKit/WatchKit.h>\nClass f(void) { return [WKCrownSequencer class]; }\n"),
+        ("POSIX chdir", "c", "#include <unistd.h>\nint f(void) { return chdir(\"/\"); }\n"),
+        ("POSIX fork", "c", "#include <unistd.h>\npid_t f(void) { return fork(); }\n"),
+    ]
+    for label, lang, code in probes:
+        try:
+            res = _compile_probe(sdk_name, lang, code)
+        except Exception as e:
+            res = f"ERR ({e})"
+        rl(f"Q3: [headers:{sdk_name}] {label} -> {res}")
+
+
+def _diagnose_libsystem(sdk_name="watchos"):
+    try:
+        sdk = sdk_path(sdk_name)
+    except subprocess.CalledProcessError:
+        return
+    lib_tbd = os.path.join(sdk, "usr", "lib", "libSystem.B.tbd")
+    sys_dir = os.path.join(sdk, "usr", "lib", "system")
+    rl(f"Q3: [diag:{sdk_name}] libSystem.B.tbd exists={os.path.exists(lib_tbd)} real={os.path.realpath(lib_tbd) if os.path.exists(lib_tbd) else '-'}")
+    if os.path.isdir(sys_dir):
+        tbds = sorted(fn for fn in os.listdir(sys_dir) if fn.endswith(".tbd"))
+        rl(f"Q3: [diag:{sdk_name}] usr/lib/system tbds ({len(tbds)}): " + ", ".join(tbds[:10]))
+    else:
+        rl(f"Q3: [diag:{sdk_name}] usr/lib/system is NOT a dir (exists={os.path.exists(sys_dir)})")
+
+    if os.path.exists(lib_tbd):
+        try:
+            with open(lib_tbd, encoding="utf-8", errors="replace") as f:
+                lines = [ln.rstrip() for ln in f if ln.strip()][:8]
+            for ln in lines:
+                rl(f"Q3: [diag:{sdk_name}]   libSystem.B.tbd: {ln[:140]}")
+        except OSError:
+            pass
+
+    targets = ("___error", "_chdir", "__exit")
+    hits = {t: [] for t in targets}
+    for p in _walk_tbds(sdk):
+        try:
+            txt = open(p, encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        for t in targets:
+            if t in txt:
+                s_one = set()
+                parse_tbd(txt, s_one, set(), "watchos")
+                hits[t].append((os.path.relpath(p, sdk), t in s_one))
+    for t in targets:
+        rl(f"Q3: [diag:{sdk_name}] raw .tbd matches for {t}: " + (", ".join(f"{p}(parsed={ok})" for p, ok in hits[t][:5]) or "NONE"))
+        bad = next((p for p, ok in hits[t] if not ok), None)
+        if bad:
+            try:
+                raw = open(os.path.join(sdk, bad), encoding="utf-8", errors="replace").read()
+                idx = raw.find(t)
+                ctx = raw[max(0, idx - 180):idx + 80].replace("\n", " | ")
+                rl(f"Q3: [diag:{sdk_name}]   unparsed sample ({bad}): {ctx[:240]}")
+            except OSError:
+                pass
+
+
 def api_facts():
     _log_api_facts("watchsimulator", "watchos")
     _log_api_facts("watchos", "watchos")
+    _header_facts("watchos")
+    _diagnose_libsystem("watchos")
 
 
 if __name__ == "__main__":
