@@ -1,0 +1,12 @@
+name: watchos_ui_example
+description: Minimal Apple Watch workout demo using watchos_ui (zero Material/Cupertino).
+publish_to: none
+
+environment:
+  sdk: ">=3.6.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  watchos_ui:
+    path: ../

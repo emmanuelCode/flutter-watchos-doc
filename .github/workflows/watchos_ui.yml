@@ -1,0 +1,32 @@
+name: watchos_ui (pure Dart / Linux CI)
+
+on:
+  push:
+    paths:
+      - 'packages/watchos_ui/**'
+      - '.github/workflows/watchos_ui.yml'
+  pull_request:
+    paths:
+      - 'packages/watchos_ui/**'
+      - '.github/workflows/watchos_ui.yml'
+  workflow_dispatch:
+
+jobs:
+  test-watchos-ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Analyze and test watchos_ui
+        working-directory: packages/watchos_ui
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter test
+      - name: Analyze example app
+        working-directory: packages/watchos_ui/example
+        run: |
+          flutter pub get
+          flutter analyze

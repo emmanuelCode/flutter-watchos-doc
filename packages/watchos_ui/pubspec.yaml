@@ -1,0 +1,16 @@
+name: watchos_ui
+description: Minimal, HIG-aware standalone Flutter widgets for Apple Watch (zero Material/Cupertino dependencies).
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ">=3.6.0 <4.0.0"
+  flutter: ">=3.27.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
