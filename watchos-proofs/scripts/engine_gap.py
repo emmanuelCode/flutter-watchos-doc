@@ -330,10 +330,14 @@ def _diagnose_libsystem(sdk_name="watchsimulator"):
             try:
                 raw = open(os.path.join(sdk, bad), encoding="utf-8", errors="replace").read()
                 idx = raw.find(t)
-                top = [ln.rstrip() for ln in raw.splitlines()[:12] if ln.strip()]
-                head = [ln.rstrip() for ln in raw[:idx].splitlines() if ln.strip() and not ln.lstrip().startswith("_")][-12:]
-                rl(f"Q3: [diag:{sdk_name}]   top ({bad}): " + " | ".join(top)[:240])
-                rl(f"Q3: [diag:{sdk_name}]   above {t} ({bad}): " + " | ".join(head)[:240])
+                keys = [ln.strip() for ln in raw[:idx].splitlines() if ":" in ln and not ln.lstrip().startswith(("_", "'", "$"))]
+                rl(f"Q3: [diag:{sdk_name}]   yaml keys above {t} ({bad}): " + " | ".join(keys[-8:])[:240])
+                em_hits = [em for em in EXPORTS_RX.finditer(raw) if t in em.group(0)]
+                rl(f"Q3: [diag:{sdk_name}]   EXPORTS_RX hits containing {t}: {len(em_hits)}")
+                if em_hits:
+                    blk = next((b for b in BLOCK_SPLIT.split(em_hits[0].group(1))[1:] if t in b), "")
+                    rl(f"Q3: [diag:{sdk_name}]   block head: " + blk[:160].replace("\n", " | "))
+                    rl(f"Q3: [diag:{sdk_name}]   LIST_RX match has {t}: {any(t in body for _, body in LIST_RX.findall(blk))}")
             except OSError:
                 pass
 
