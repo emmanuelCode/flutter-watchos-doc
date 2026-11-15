@@ -1,6 +1,6 @@
 # Flutter for watchOS — Maintainer Summary
 
-> **Status:** Design specification + Simulator CI evidence (`commit 5aa5fa1`, run `43662504610`). **Not a working watchOS port.**
+> **Status:** Design specification + Simulator CI evidence (`commit 740962b`, run `43749925381`). **Not a working watchOS port.**
 
 ## What this is / is NOT
 
@@ -8,15 +8,15 @@
 - **Is NOT:** A working or shippable watchOS engine build, an AOT runtime, or hardware-verified. Checks `Q4`–`Q7` run a **retagged macOS debug JIT engine** with stubbed frameworks in a Simulator process—a wiring experiment that **never ships**.
 - **Public-API stance:** This design uses only public watchOS SDK APIs; the alternative route (`flutter-watchos`) is unassessed here.
 
-## Evidence Summary (`5aa5fa1` / run `43662504610`, `Flutter 3.50.0` / `Dart 3.14.0`, `Xcode 26.6`, `watchOS 26.5 Simulator`)
+## Evidence Summary (`740962b` / run `43749925381`, `Flutter 3.50.0` / `Dart 3.14.0`, `Xcode 26.6`, `watchOS 26.5 Simulator`)
 
 | Claim | Evidence (check ID, file) | Limits | Transfers to real watch? |
 |---|---|---|---|
 | SwiftUI `Canvas` decodes & draws RGBA frames | `P0, P1, P4, P5, X2, S0, S3, S4` (`watchos-proofs/swift_proofs/Sources/WatchProofs/FrameImage.swift`, `watchos-proofs/swift_spec/Tests/SpecCodeTests/S3_FrameStoreViewTests.swift`, `S4_FrameViewRedrawTests.swift`) | `ImageRenderer` off-screen in `watchOS-26-5` Simulator (`46mm`); live on-screen display invalidation & AOD untested | **Partly** (compiles & decodes; live screen timing does not) |
 | Headless Dart capture & pointer tap replay work | `F0, P2, P3, X1, S1, S7` (`watchos-proofs/flutter_proofs/test/p2_headless_frame_capture_test.dart`, `p3_tap_injection_test.dart`, `s1_spec_streamer_injector_test.dart`, `s7_capture_now_test.dart`) | `flutter test` renderer (`800x600`, `191664` B @ `1.0` / `766656` B @ `2.0`); not real GPU readback cost | **Yes** (runs on Mac host in dev mode) |
-| Loopback `ws://` dev loop & sustained transport | `P6, P9, E0, E1` (`watchos-proofs/dart_tools/ws_stream_server.dart`, `watchos-proofs/swift_proofs/Tests/WatchProofsTests/P9_TransportThroughputTests.swift`, `watchos-proofs/swift_spec/Tests/SpecCodeTests/E1_EndToEndTests.swift`) | `P6`: `197 ms` first frame; `P9` (`100` static loopback frames): zlib `1047 B` / `1.6 ms` (`1.0`), `3935 B` / `6.1 ms` (`2.0`); `E1`: `2` frames in `flutter test`, no real Mac window or hot reload | **No** for `ws://` (**Simulator-only**; real LAN HTTP/`WCSession` untested) |
-| Official engine & watchOS SDK gap audit | `Q1, Q3` (`watchos-proofs/scripts/q1_engine_source.sh`, `q3_gap.sh`, `engine_gap.py`) | Static `.tbd` + header compile probes only; full `ninja`/AOT build not attempted (`60 min` job cap, `3` cores, `7 GB` RAM, `93 GB` disk) | **Yes** (direct Apple SDK & engine source facts) |
-| Patched `embedder.h` runs Dart + tap/scroll in Sim | `Q4, Q5, Q6, Q7` (`watchos-proofs/scripts/make_stubs.py`, `watchos-proofs/engine_probe/engine_host.c`, `app/lib/main.dart`) | Retagged macOS debug JIT binary (`8` path rewrites, `7` stubs, `4` CoreVideo overlays); `141.31`/`142.66 MB` (`Q6`) & `140.98–142.72 MB` (`Q7`) resident in Mac JIT Simulator; synthetic scroll only; **never ships** | **No** (API-wiring check only; no source/AOT/device proof) |
+| Loopback `ws://` dev loop & sustained transport | `P6, P9, E0, E1` (`watchos-proofs/dart_tools/ws_stream_server.dart`, `watchos-proofs/swift_proofs/Tests/WatchProofsTests/P9_TransportThroughputTests.swift`, `watchos-proofs/swift_spec/Tests/SpecCodeTests/E1_EndToEndTests.swift`) | `P6`: `291 ms` first frame; `P9` (`100` static loopback frames): zlib `1047 B` / `2.5 ms` (`1.0`), `3935 B` / `8.9 ms` (`2.0`); `E1`: `2` frames in `flutter test`, no real Mac window or hot reload | **No** for `ws://` (**Simulator-only**; real LAN HTTP/`WCSession` untested) |
+| Official engine & watchOS SDK gap audit | `Q1, Q3` (`watchos-proofs/scripts/q1_engine_source.sh`, `q3_gap.sh`, `engine_gap.py`) | Static `.tbd` + header compile probes only; full `ninja`/AOT build not attempted (`60 min` job cap, `5` cores, `14 GB` RAM, `93 GB` disk) | **Yes** (direct Apple SDK & engine source facts) |
+| Patched `embedder.h` runs Dart + tap/scroll in Sim | `Q4, Q5, Q6, Q7` (`watchos-proofs/scripts/make_stubs.py`, `watchos-proofs/engine_probe/engine_host.c`, `app/lib/main.dart`) | Retagged macOS debug JIT binary (`8` path rewrites, `7` stubs, `4` CoreVideo overlays); `141.64`/`142.89 MB` (`Q6`) & `140.53–142.41 MB` (`Q7`) resident in Mac JIT Simulator; synthetic scroll only; **never ships** | **No** (API-wiring check only; no source/AOT/device proof) |
 | Pure-Dart `watchos_ui` widgets & HIG checker | `watchos_ui` Linux CI (`packages/watchos_ui/test/watchos_ui_test.dart`, `packages/watchos_ui/lib/src/hig_checker.dart`, `.github/workflows/watchos_ui.yml`) | `9/9` unit tests passed (`linux_x64`); zero Material/Cupertino; v0 numeric HIG bounds unverified | **Partly** (Dart layer only; needs watchOS engine for prod) |
 | Archived Path B display-list fixtures | `A1–A4, S2, S5, S6` (`watchos-proofs/swift_proofs/Tests/WatchProofsTests/`, `watchos-proofs/swift_spec/Tests/SpecCodeTests/`) | Stand-in writer & off-screen tests; `ZeroCopyCanvas` & `DRAW_TEXT` unverified; does **not** validate Path A | **Partly** (wire/anchor checks; perf unverified) |
 
@@ -35,5 +35,5 @@
 
 - **Architecture spec:** [flutter_watchos_architecture.md](../flutter_watchos_architecture.md) · **Proofs catalog & local commands:** [watchos-proofs/README.md](../watchos-proofs/README.md) · **UI package:** [packages/watchos_ui/README.md](../packages/watchos_ui/README.md) · **Hardware probe (`Gate 0d`):** [docs/gate-0d-probe.md](gate-0d-probe.md)
 - **Changelog:** [CHANGELOG.md](../CHANGELOG.md) (full history: [docs/history/CHANGELOG-full.md](history/CHANGELOG-full.md))
-- **CI results:** Latest pasted run `5aa5fa1` / `43662504610` (`TODO(author): verify` permanent results archive once first sheet is pasted into [docs/results/latest.md](results/latest.md)).
+- **CI results:** Latest archived `proofs.yml` sheet is [2026-11-15-740962b.md](results/2026-11-15-740962b.md) / run `43749925381` (also in [docs/results/latest.md](results/latest.md)); `watchos_ui` Linux CI was not triggered on `740962b` (`packages/watchos_ui/**` unchanged).
 - **Who verified what:** See [AIREADME.md section 2](../AIREADME.md#2-how-ai-was-used-provenance). `TODO(author): state which parts I personally reviewed vs AI-generated`

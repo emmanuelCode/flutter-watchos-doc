@@ -500,7 +500,7 @@ Latest environment: macOS arm64 runner, Xcode 26.6, watchOS 26.5 Simulator, Flut
 |---|---|---|---|
 | **Watch-side SwiftUI renderer** (`WatchFrameStore`, `WatchFrameView`) | Tested in Simulator | Compiles for watchOS; RGBA → `CGImage` → `Canvas` renders stretched to fill; off-screen `ImageRenderer` confirms pixel updates on publish (does not prove live hardware screen invalidation) | Partly: compiles and decodes; on-screen timing and invalidation do not |
 | **Headless Dart frame capture & input** (`WatchFrameStreamer`, `WatchInputInjector`) | Tested in `flutter test` | Captures raw RGBA with no window; `captureNow()` pushes current frame from an idle app; `stop()` and mid-capture coalescing verified; injected taps trigger `setState()` | Yes: runs on the Mac in Mode 1 |
-| **Loopback WebSocket transport** | Tested in Simulator | Dart server → watchOS Simulator client sends 192 KB frame down and tap up (first frame incl. handshake: 120–259 ms across runs). Passes because Simulator allows low-level networking per Apple TN3135; **not** valid evidence for physical watch `ws://` | No: Simulator-only (TN3135) |
+| **Loopback WebSocket transport** | Tested in Simulator | Dart server → watchOS Simulator client sends 192 KB frame down and tap up (first frame incl. handshake: 120–291 ms across runs). Passes because Simulator allows low-level networking per Apple TN3135; **not** valid evidence for physical watch `ws://` | No: Simulator-only (TN3135) |
 | **End-to-end dev loop** (Streamer + Injector ↔ WebSocket ↔ SwiftUI View) | Tested in Simulator | On connect `captureNow()` pushed frame 0 (red); tap at (99, 121) returned; frame 1 arrived (green). Host side ran inside `flutter test`, not a real macOS desktop app; no hot reload or sustained multi-frame animation tested | Partly: logic and rendering yes; transport no |
 | **Path B display-list fixtures** *(archived research)* | Tested with stand-ins | Anchor fix (`.topLeading`), triple-buffer mailbox, Dart-to-Swift byte parsing, `@_cdecl` `dlsym` lookup, and `WatchCanvasView` (`DRAW_RECT`) pass (7 checks: `A1–A4`, `S2`, `S5`, `S6`); `ZeroCopyCanvas` and `DRAW_TEXT` remain unverified. Does **not** validate Path A | Partly: parsing yes; performance no |
 
@@ -515,10 +515,10 @@ Latest environment: macOS arm64 runner, Xcode 26.6, watchOS 26.5 Simulator, Flut
 | Pixel ratio | Encoding | Bytes/frame | ms/frame | Decode ms/frame |
 |---|---|---|---|---|
 | 1.0 | raw | 191,668 | 0.5–1.9 | 0.0–0.1 |
-| 1.0 | zlib | 1,047 | 0.9–2.3 | 0.8–2.1 |
+| 1.0 | zlib | 1,047 | 0.9–2.5 | 0.8–2.2 |
 | 1.0 | XOR-delta + zlib | 922 | 22.5–42.8 | 22.4–42.5 |
-| 2.0 | raw | 766,660 | 1.5–7.0 | 0.1–0.2 |
-| 2.0 | zlib | 3,935 | 3.2–8.2 | 3.1–7.9 |
+| 2.0 | raw | 766,660 | 1.5–8.6 | 0.1–0.2 |
+| 2.0 | zlib | 3,935 | 3.2–8.9 | 3.1–8.6 |
 | 2.0 | XOR-delta + zlib | 3,495 | 90.9–169.8 | 90.7–169.5 |
 
 Full-frame zlib shrank test frames ≈ 180–195× (≈ 31 KB/s at 1.0, ≈ 118 KB/s at 2.0 at 30 fps burst, vs 5.7 / 23 MB/s raw). **These are best-case Mac debug measurements:** mostly-static black frames, Simulator loopback, a Mac CPU (a real watch decodes more slowly), and a debug build.
@@ -575,7 +575,7 @@ This concerns Open Question 9 and is a starting point for anyone building a full
 
 **Policy.** Release/AOT only (debug engine, JIT and hot reload are development tools); public Apple APIs only (not yet audited); App Review Guideline 2.5.2 requires apps to be self-contained. The Flutter team does not support custom engine builds long-term, so a port is community-maintained unless upstreamed.
 
-**Smallest further tests:** compile all of `fml` with the missing `third_party` headers · build only the Dart VM for `watchos_simulator` · full from-source engine build on a larger or self-hosted machine (a hosted runner with 3 cores, 7 GB RAM and a 6 h cap is not expected to suffice) · finally a real watch.
+**Smallest further tests:** compile all of `fml` with the missing `third_party` headers · build only the Dart VM for `watchos_simulator` · full from-source engine build on a larger or self-hosted machine (hosted runners—observed at 3–5 cores and 7–14 GB RAM with a 6 h cap—are not expected to suffice) · finally a real watch.
 
 ---
 
@@ -608,7 +608,7 @@ The highest-risk unknowns (Apple compliance and on-device AOT runtime footprint)
 **Gate 0b: GPU / Metal compliance check (Open Question 12)** *(Needs: paid Apple Developer account + signing — first ask for contributors)*
 - [ ] Archive and run App Store Connect / TestFlight validation on a `SpriteView` / `SKMutableTexture` target vs. a Metal-linked target
 
-**Gate 0c: On-device runtime & memory spike (Open Question 9)** *(Needs: build machine beyond the 3-core/60-min hosted CI limit + physical watch hardware — first ask for contributors)*
+**Gate 0c: On-device runtime & memory spike (Open Question 9)** *(Needs: build machine beyond the 3–5 core / 60-min hosted CI limit + physical watch hardware — first ask for contributors)*
 - [ ] Build Dart VM + `gen_snapshot` (`tools/gn.py --os watchos`) and measure on-device binary size, AOT `hello_world` RSS memory, and watchOS jetsam headroom
 
 **Gate 0d: Physical-watch probe (Open Questions 10, 11, 13)** *(Needs: physical watch + Mac + Xcode signing; contributor-run)*

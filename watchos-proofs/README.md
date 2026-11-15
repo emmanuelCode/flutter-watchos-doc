@@ -27,7 +27,7 @@ Fix order: **F0 → P1 → P0 → everything else.** A failure in P1 or P0 block
 instead of failing for confusing reasons. Full logs are attached to the run as `logs-*` artifacts, but only when
 something fails.
 
-**Latest result:** All 34 CI entries passed (`17` Proof + `7` Setup + `4` Experiment + `2` Measure + `1` Finding + `3` hybrid [`P0` Setup+Proof, `P2` Proof+Measure, `Q1` Finding+Proof] = `34`; commit 6adb57d, run 43548272531; runner image macos26 20261102.0473.1, macOS 26.7.2,
+**Latest result:** All 34 CI entries passed (`17` Proof + `7` Setup + `4` Experiment + `2` Measure + `1` Finding + `3` hybrid [`P0` Setup+Proof, `P2` Proof+Measure, `Q1` Finding+Proof] = `34`; commit 740962b, run 43749925381; runner image macos26 20261102.0473.1, macOS 26.7.2,
 Xcode 26.6, watchOS 26.5 Simulator, Flutter 3.50.0, Dart 3.14.0 on all jobs). Passing a **Setup**, **Measure**, **Finding**, or **Experiment** check does not prove production readiness—see each row's limits below.
 
 ## Capability-to-check traceability
@@ -108,7 +108,7 @@ engine from source is beyond a hosted runner, so these checks ask what *can* be 
 
 | ID | Type | What it tests | Purpose | A pass means — and its limits |
 |---|---|---|---|---|
-| Q0 | Measure | What a hosted runner offers | Whether an engine build could fit | 3 cores, 7 GB RAM, about 93 GB free disk; hosted jobs are capped at 6 h and the engine job at 60 min. A from-source engine build is not attempted here |
+| Q0 | Measure | What a hosted runner offers | Whether an engine build could fit | 5 cores, 14 GB RAM on latest macOS runner (3 cores, 7 GB RAM on earlier runs), about 93 GB free disk; hosted jobs are capped at 6 h and the engine job at 60 min. A from-source engine build is not attempted here |
 | Q1 | Finding + Proof | Facts from the real engine source at the commit pinned by this SDK, and whether `fml` and `shell/platform/embedder` compile against both `watchsimulator` and `--sdk watchos` (`arm64`) with C++20 | Shows how much of the engine already fits watchOS | `tools/gn` has no watchOS target while Dart's `tools/gn.py` accepts `watchos`/`watchos_simulator`; `embedder.h` exports 47 functions with a software renderer; `49/55` `fml` files compile cleanly on both `watchsimulator` and `--sdk watchos` (`0` unavailable-API errors, `6` missing `third_party` headers); `1/28` `embedder` files compile standalone (`27` stop on out-of-sample `common`/`flow`/`shell/common` headers, `0` unavailable-API errors) |
 | Q2 | Setup | Gathers official pieces: the desktop embedder library (only `darwin-x64` is published; it is universal x86_64 + arm64), `icudtl.dat`, the iOS engine, and a probe app bundle | Inputs for Q3–Q5 | The artifacts exist and download |
 | Q2s | Setup | A watch simulator boots in this job | Q4 and Q5 run in it | Ready |

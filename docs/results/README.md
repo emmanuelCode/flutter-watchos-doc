@@ -10,5 +10,6 @@ GitHub Actions run logs and workflow artifacts (`results-sheet`, `results-*`, `e
 
 ## Files
 
-- [latest.md](latest.md) — placeholder for the latest pasted `RESULTS` sheet.
+- [latest.md](latest.md) — latest archived `RESULTS` sheet (`740962b` / run `43749925381`).
+- [2026-11-15-740962b.md](2026-11-15-740962b.md) — permanent archive for commit `740962b` (`34/34` passed).
 - [TEMPLATE.md](TEMPLATE.md) — template with required provenance fields (`Date (UTC)`, `Commit`, `Branch / PR`, `Run ID`, `Source`).
