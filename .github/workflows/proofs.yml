@@ -5,6 +5,9 @@ on: [push, pull_request, workflow_dispatch]
 env:
   SPEC_FILE: flutter_watchos_architecture.md
 
+# Note: `macos-latest`, `ubuntu-latest`, and Flutter `channel: stable` float.
+# Keep the "Record tool versions" steps in every job; those recorded outputs
+# (macOS, Xcode, watchOS Simulator, Flutter, Dart) are the source of truth.
 jobs:
   flutter-side:
     name: "Flutter side — runs on a Mac"

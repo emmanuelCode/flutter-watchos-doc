@@ -11,6 +11,8 @@ on:
       - '.github/workflows/watchos_ui.yml'
   workflow_dispatch:
 
+# Note: `ubuntu-latest` (like `macos-latest` in proofs.yml) and Flutter `channel: stable` float.
+# Keep the "Record tool versions" step below; its recorded Flutter/Dart output is the source of truth.
 jobs:
   test-watchos-ui:
     runs-on: ubuntu-latest
@@ -19,6 +21,10 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+      - name: Record tool versions
+        run: |
+          flutter --version
+          dart --version
       - name: Analyze and test watchos_ui
         working-directory: packages/watchos_ui
         run: |
