@@ -308,4 +308,10 @@ jobs:
           pattern: results-*
           path: results
       - name: "Print the result sheet"
-        run: python3 watchos-proofs/scripts/report.py results
+        run: python3 watchos-proofs/scripts/report.py results > /tmp/results-sheet.txt && cat /tmp/results-sheet.txt
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: results-sheet
+          path: /tmp/results-sheet.txt
+          if-no-files-found: warn
