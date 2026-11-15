@@ -279,7 +279,7 @@ Every `*_status` field MUST use exactly one of these six values:
 - **`INTERRUPTED`**: Aborted mid-run because `scenePhase` left `.active` (`scene_left_active`) or user cancelled.
 - **`SKIPPED`**: Intentionally omitted (e.g., `deferred_to_v1_1`, opt-in `[MEM_RAMP]` not invoked, or `[NET_LOWLEVEL]` skipped after `[NET_CONTROL]` failed).
 
-**Strict `*_detail` grammar:** Must match `"domain:code"` (e.g. `NSPOSIXErrorDomain:50`, `NSURLErrorDomain:-1004`, `POSIX:13`) or one of these fixed vocabulary tokens:
+**Strict `*_detail` grammar:** Must match `"domain:code"` (`NSPOSIXErrorDomain`, `NSURLErrorDomain`, `POSIX`, `NWError`, or `OtherDomain`, e.g. `NSPOSIXErrorDomain:50`, `NSURLErrorDomain:-1004`, `POSIX:13`, `OtherDomain:-99`) or one of these fixed vocabulary tokens:
 `none`, `WAITING(ENETDOWN)`, `deferred_to_v1_1`, `scene_left_active`, `user_cancelled`, `clean_exit`, `timeout`, `skipped_control_failed`, `unsupported`.
 *Never use `error.localizedDescription` or `String(describing:)`.* The CI validator enforces allowlist regex `^[a-zA-Z0-9_\(\)]+(:[a-zA-Z0-9_-]+)?$`.
 

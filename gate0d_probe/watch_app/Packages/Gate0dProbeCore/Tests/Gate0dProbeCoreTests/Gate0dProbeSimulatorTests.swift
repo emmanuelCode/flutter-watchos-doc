@@ -50,6 +50,7 @@ final class Gate0dProbeSimulatorTests: XCTestCase {
         XCTAssertFalse(sanitized.contains("192.168"))
         XCTAssertFalse(sanitized.contains(".local"))
         XCTAssertFalse(sanitized.contains("MacBook"))
+        XCTAssertEqual(sanitized, "OtherDomain:-99")
         let matchesGrammar = sanitized.range(of: #"^[A-Za-z0-9_]+:-?[0-9]+$"#, options: .regularExpression) != nil
         XCTAssertTrue(matchesGrammar, sanitized)
     }

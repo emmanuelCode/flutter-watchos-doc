@@ -59,9 +59,7 @@ public enum ProbeDetail {
         if nsErr.domain == NSURLErrorDomain {
             return "NSURLErrorDomain:\(nsErr.code)"
         }
-        // TODO(author): the validator allowlist has no "other domain" token, so unknown domains
-        // are folded into NSURLErrorDomain. Decide whether to add an explicit OtherDomain token.
-        return "NSURLErrorDomain:\(nsErr.code)"
+        return "OtherDomain:\(nsErr.code)"
     }
 }
 

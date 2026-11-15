@@ -29,7 +29,7 @@ public final class MetricsCaptureDelegate: NSObject, URLSessionTaskDelegate, @un
         case "h3": proto = "h3"
         case "http/1.1", "http/1.0": proto = "http/1.1"
         case "": proto = "na"
-        default: proto = "other"
+        default: proto = "unknown"
         }
 
         lock.lock()

@@ -24,7 +24,7 @@ ALLOWED_VOCAB_TOKENS = {
     "skipped_control_failed",
     "unsupported",
 }
-DETAIL_REGEX = re.compile(r"^(NSPOSIXErrorDomain|NSURLErrorDomain|POSIX|NWError):-?\d+$")
+DETAIL_REGEX = re.compile(r"^(NSPOSIXErrorDomain|NSURLErrorDomain|POSIX|NWError|OtherDomain):-?\d+$")
 
 RE_IPV4 = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
 RE_IPV6 = re.compile(r"\b(?:[0-9a-fA-F]{1,4}:){2,7}[0-9a-fA-F]{1,4}\b")
@@ -310,7 +310,9 @@ RESULT_JSON={"PROBE_SPEC_VERSION":"1","TIMESTAMP_UTC":"2026-11-15T04:00:00Z","DE
 def run_tests() -> None:
     try:
         validate_block(GOLDEN_GOOD)
-        print("PASS: Golden good fixture validated cleanly")
+        other_good = GOLDEN_GOOD.replace("jit_mmap_detail=POSIX:13", "jit_mmap_detail=OtherDomain:-99").replace('"jit_mmap_detail":"POSIX:13"', '"jit_mmap_detail":"OtherDomain:-99"')
+        validate_block(other_good)
+        print("PASS: Golden good fixture and OtherDomain token validated cleanly")
     except Exception as e:
         print(f"FAIL: Golden good fixture rejected: {e}")
         sys.exit(1)
