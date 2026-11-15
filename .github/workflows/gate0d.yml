@@ -1,0 +1,38 @@
+name: gate0d (probe server & validator CI)
+
+on:
+  push:
+    paths:
+      - 'gate0d_probe/**'
+      - '.github/workflows/gate0d.yml'
+  pull_request:
+    paths:
+      - 'gate0d_probe/**'
+      - '.github/workflows/gate0d.yml'
+  workflow_dispatch:
+
+jobs:
+  test-gate0d:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Run Gate 0d result-block validator tests
+        run: python3 gate0d_probe/ci_validator/validate_gate0d.py --test
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Record tool versions
+        run: |
+          python3 --version
+          dart --version
+      - name: Run Dart echo server integration test
+        run: |
+          dart run gate0d_probe/mac_echo_server/probe_server.dart --quiet --tcp-port 8770 --http-port 8771 &
+          SERVER_PID=$!
+          sleep 2
+          dart run gate0d_probe/mac_echo_server/test_client.dart --tcp-port 8770 --http-port 8771
+          kill $SERVER_PID
