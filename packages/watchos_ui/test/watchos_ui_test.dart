@@ -211,4 +211,150 @@ void main() {
 
     expect(capturedSize, const Size(208, 248));
   });
+
+  test('WatchOSHigConfig defaults match current behavior and opt-in rules are off', () {
+    const config = WatchOSHigConfig();
+    expect(config.minTouchTarget, 44.0);
+    expect(config.minFontSize, 14.0);
+    expect(config.maxFontSize, 34.0);
+    expect(config.pureBlackColor, const Color(0xFF000000));
+    expect(config.checkOverflow, isTrue);
+    expect(config.checkTouchTarget, isTrue);
+    expect(config.checkFontSize, isFalse);
+    expect(config.checkPureBlack, isFalse);
+
+    final updated = config.copyWith(minTouchTarget: 48.0, checkFontSize: true);
+    expect(updated.minTouchTarget, 48.0);
+    expect(updated.checkFontSize, isTrue);
+    expect(updated, isNot(config));
+  });
+
+  testWidgets('WatchOSHigChecker ignores font-size and pure-black violations by default', (WidgetTester tester) async {
+    var violations = <WatchOSHigViolation>[];
+
+    await tester.pumpWidget(
+      WatchOSApp(
+        home: WatchOSHigChecker(
+          onViolations: (List<WatchOSHigViolation> v) => violations = v,
+          child: const ColoredBox(
+            color: Color(0xFF1C1C1E),
+            child: Column(
+              children: <Widget>[
+                Text('TooSmall', style: TextStyle(fontSize: 10)),
+                Text('TooLarge', style: TextStyle(fontSize: 40)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(violations, isEmpty);
+  });
+
+  testWidgets('WatchOSHigChecker enforces configurable minTouchTarget and checkOverflow', (WidgetTester tester) async {
+    var violations = <WatchOSHigViolation>[];
+
+    await tester.pumpWidget(
+      WatchOSApp(
+        home: WatchOSHigChecker(
+          config: const WatchOSHigConfig(minTouchTarget: 50.0, checkOverflow: false),
+          onViolations: (List<WatchOSHigViolation> v) => violations = v,
+          child: GestureDetector(
+            onTap: () {},
+            child: const SizedBox(width: 44, height: 44),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(violations.any((WatchOSHigViolation v) => v.category == 'touchTarget'), isTrue);
+    expect(violations.any((WatchOSHigViolation v) => v.category == 'overflow'), isFalse);
+  });
+
+  testWidgets('WatchOSHigChecker opt-in font-size rule flags outside bounds and honors custom bounds', (WidgetTester tester) async {
+    var violations = <WatchOSHigViolation>[];
+
+    await tester.pumpWidget(
+      WatchOSApp(
+        home: WatchOSHigChecker(
+          config: const WatchOSHigConfig(checkFontSize: true),
+          onViolations: (List<WatchOSHigViolation> v) => violations = v,
+          child: const Column(
+            children: <Widget>[
+              Text('Small', style: TextStyle(fontSize: 10)),
+              Text('Huge', style: TextStyle(fontSize: 40)),
+              Text('Body', style: TextStyle(fontSize: 16)),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final fontViolations = violations.where((WatchOSHigViolation v) => v.category == 'fontSize').toList();
+    expect(fontViolations, hasLength(2));
+    expect(fontViolations.every((WatchOSHigViolation v) => v.severity == WatchOSHigViolationSeverity.warning), isTrue);
+
+    violations = <WatchOSHigViolation>[];
+    await tester.pumpWidget(
+      WatchOSApp(
+        home: WatchOSHigChecker(
+          config: const WatchOSHigConfig(checkFontSize: true, minFontSize: 10.0, maxFontSize: 42.0),
+          onViolations: (List<WatchOSHigViolation> v) => violations = v,
+          child: const Column(
+            children: <Widget>[
+              Text('Small', style: TextStyle(fontSize: 10)),
+              Text('Huge', style: TextStyle(fontSize: 40)),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(violations, isEmpty);
+  });
+
+  testWidgets('WatchOSHigChecker opt-in pure-black rule flags off-black screen backgrounds only', (WidgetTester tester) async {
+    var violations = <WatchOSHigViolation>[];
+
+    await tester.pumpWidget(
+      const WatchOSPreviewFrame(
+        watchSize: WatchOSSize.mm40,
+        showBezel: false,
+        child: WatchOSApp(
+          enableHigChecker: true,
+          higConfig: WatchOSHigConfig(checkPureBlack: true),
+          theme: WatchOSThemeData(backgroundColor: Color(0xFF121212)),
+          home: SizedBox.shrink(),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(find.textContaining('HIG:'), findsOneWidget);
+
+    await tester.pumpWidget(
+      WatchOSApp(
+        home: WatchOSHigChecker(
+          config: const WatchOSHigConfig(checkPureBlack: true),
+          onViolations: (List<WatchOSHigViolation> v) => violations = v,
+          child: ColoredBox(
+            color: const Color(0xFF000000),
+            child: Center(
+              child: Container(
+                width: 80,
+                height: 48,
+                color: const Color(0xFF1C1C1E),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(violations, isEmpty);
+  });
 }

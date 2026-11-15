@@ -14,6 +14,7 @@ class WatchOSApp extends StatelessWidget {
     this.initialRoute,
     this.onGenerateRoute,
     this.enableHigChecker = false,
+    this.higConfig,
     this.debugShowCheckedModeBanner = false,
   });
 
@@ -24,6 +25,7 @@ class WatchOSApp extends StatelessWidget {
   final String? initialRoute;
   final RouteFactory? onGenerateRoute;
   final bool enableHigChecker;
+  final WatchOSHigConfig? higConfig;
   final bool debugShowCheckedModeBanner;
 
   @override
@@ -73,7 +75,8 @@ class WatchOSApp extends StatelessWidget {
 
         if (enableHigChecker) {
           content = WatchOSHigChecker(
-            minTouchTarget: resolvedTheme.minTouchTarget,
+            config: higConfig ??
+                WatchOSHigConfig(minTouchTarget: resolvedTheme.minTouchTarget),
             child: content,
           );
         }
