@@ -1,0 +1,47 @@
+name: Gate0dProbe
+options:
+  bundleIdPrefix: dev.flutterwatchos
+  deploymentTarget:
+    watchOS: "10.0"
+
+packages:
+  Gate0dProbeCore:
+    path: Packages/Gate0dProbeCore
+
+# NOTE: no `info:` block on purpose. XcodeGen would regenerate the plists from
+# `info.properties` and overwrite the hand-written Info-*.plist files (which hold
+# the ATS keys). INFOPLIST_FILE points at the committed plists instead.
+targets:
+  Gate0dProbe-RelaxedATS:
+    type: application
+    platform: watchOS
+    sources:
+      - Sources
+    dependencies:
+      - package: Gate0dProbeCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.flutterwatchos.gate0d.relaxed
+        PRODUCT_NAME: Gate0dProbeRelaxed
+        SWIFT_VERSION: "5.9"
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Info-RelaxedATS.plist
+        TARGETED_DEVICE_FAMILY: "4"
+        SKIP_INSTALL: NO
+
+  Gate0dProbe-StrictATS:
+    type: application
+    platform: watchOS
+    sources:
+      - Sources
+    dependencies:
+      - package: Gate0dProbeCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.flutterwatchos.gate0d.strict
+        PRODUCT_NAME: Gate0dProbeStrict
+        SWIFT_VERSION: "5.9"
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Info-StrictATS.plist
+        TARGETED_DEVICE_FAMILY: "4"
+        SKIP_INSTALL: NO

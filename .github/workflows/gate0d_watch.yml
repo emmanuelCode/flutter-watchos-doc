@@ -1,0 +1,109 @@
+name: gate0d-watch
+
+# A separate workflow so proofs.yml, watchos_ui.yml and the Stage 6b workflow stay untouched.
+# macos-latest and Flutter `channel: stable` float; the versions printed in the log are the source of truth.
+on:
+  push:
+    paths:
+      - "gate0d_probe/**"
+      - ".github/workflows/gate0d_watch.yml"
+  pull_request:
+    paths:
+      - "gate0d_probe/**"
+      - ".github/workflows/gate0d_watch.yml"
+  workflow_dispatch:
+
+jobs:
+  build-and-sim-probe:
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Record tool versions
+        run: |
+          sw_vers
+          xcodebuild -version
+          dart --version
+          python3 --version
+
+      - name: Install XcodeGen
+        run: |
+          brew install xcodegen
+          xcodegen --version
+
+      - name: Generate the Xcode project
+        working-directory: gate0d_probe/watch_app
+        run: xcodegen generate
+
+      - name: XcodeGen must not rewrite the hand-written plists
+        run: git diff --exit-code -- gate0d_probe/watch_app/Info-RelaxedATS.plist gate0d_probe/watch_app/Info-StrictATS.plist
+
+      - name: Build both variants unsigned for the watchOS device SDK
+        working-directory: gate0d_probe/watch_app
+        run: |
+          set -uo pipefail
+          for SCHEME in Gate0dProbe-RelaxedATS Gate0dProbe-StrictATS; do
+            LOG="/tmp/xcodebuild_device_${SCHEME}.log"
+            if ! xcodebuild build \
+                -project Gate0dProbe.xcodeproj -scheme "$SCHEME" -configuration Debug \
+                -destination 'generic/platform=watchOS' \
+                CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
+                > "$LOG" 2>&1; then
+              echo "::error::device-SDK build failed for $SCHEME"
+              grep -E "error:" "$LOG" | head -n 40 || true
+              tail -n 40 "$LOG"
+              exit 1
+            fi
+            echo "OK: $SCHEME built for the watchOS device SDK"
+          done
+
+      - name: Boot a watchOS Simulator
+        run: bash watchos-proofs/scripts/pick_watch_sim.sh
+
+      - name: Run the Simulator negative-control probe against the Dart server
+        run: |
+          set -uo pipefail
+          dart run gate0d_probe/mac_echo_server/probe_server.dart --quiet --tcp-port 8774 --http-port 8775 > /tmp/probe_server.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill $SERVER_PID 2>/dev/null || true' EXIT
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            if curl -sf -o /dev/null http://127.0.0.1:8775/ping; then break; fi
+            sleep 1
+          done
+          curl -sf -o /dev/null http://127.0.0.1:8775/ping || { echo "::error::probe server did not start"; cat /tmp/probe_server.log; exit 1; }
+
+          cd gate0d_probe/watch_app/Packages/Gate0dProbeCore
+          LOG=/tmp/xcodebuild_gate0d_sim.log
+          if ! xcodebuild test \
+              -scheme Gate0dProbeCore \
+              -destination "id=$WATCH_UDID" \
+              -only-testing:Gate0dProbeCoreTests \
+              -test-timeouts-enabled YES -default-test-execution-time-allowance 300 \
+              > "$LOG" 2>&1; then
+            echo "::error::simulator tests failed"
+            grep -E "Test Case|error:|failed|Unable to" "$LOG" | head -n 60 || true
+            tail -n 40 "$LOG"
+            exit 1
+          fi
+          grep -E "Test Case|\*\* TEST" "$LOG" | head -n 30 || true
+
+      - name: Show and validate the emitted result block
+        run: |
+          cat /tmp/gate0d_sim_result.txt
+          python3 gate0d_probe/ci_validator/validate_gate0d.py /tmp/gate0d_sim_result.txt
+
+      - name: Upload logs and the Simulator result block
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate0d-watch-logs
+          path: |
+            /tmp/gate0d_sim_result.txt
+            /tmp/xcodebuild_*.log
+            /tmp/probe_server.log
+          if-no-files-found: ignore
