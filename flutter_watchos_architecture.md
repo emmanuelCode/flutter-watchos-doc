@@ -612,7 +612,7 @@ The highest-risk unknowns (Apple compliance and on-device AOT runtime footprint)
 - [ ] Build Dart VM + `gen_snapshot` (`tools/gn.py --os watchos`) and measure on-device binary size, AOT `hello_world` RSS memory, and watchOS jetsam headroom
 
 **Gate 0d: Physical-watch probe (Open Questions 10, 11, 13)** *(Needs: physical watch + Mac + Xcode signing; contributor-run)*
-- [ ] Write a small watchOS probe app (not yet written) that prints one paste-ready result block: `mmap(MAP_JIT)` / `mprotect(PROT_EXEC)` attempt; BSD socket, `NWConnection` and `URLSessionWebSocketTask` blocked-or-not; `URLSession.bytes` latency and throughput to a Mac on the LAN, including a router with no internet; `.local` resolution; `WCSession` throughput; RGBA/zlib decode time; Mach resident memory
+- [x] Write a small watchOS probe app (`gate0d_probe/`, spec in [`docs/gate-0d-probe.md`](docs/gate-0d-probe.md); `Gate0dProbeCoreTests` and `validate_gate0d.py` pass Simulator negative-control CI, **unverified on physical hardware**) that prints one paste-ready result block: `mmap(MAP_JIT)` / `mprotect(PROT_EXEC)` attempt; BSD socket, `NWConnection` and `URLSessionWebSocketTask` blocked-or-not; `URLSession.bytes` latency and throughput to a Mac on the LAN, including a router with no internet; `.local` resolution; RGBA/zlib decode time; Mach resident memory (`WCSession` deferred to v1.1)
 - [ ] Publish contributor results next to the CI results, labelled by device model and watchOS version
 
 **Phase 0: `watchos_ui` specification & Simulator CI spikes**

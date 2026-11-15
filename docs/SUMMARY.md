@@ -29,11 +29,11 @@
 ## What Is NOT Proven & What Someone With Hardware Can Run (`Gate 0d`)
 
 - **Unproven:** Source-built/AOT watchOS engine & Dart VM, real-watch RSS/jetsam headroom, CPU frame times & battery, live SwiftUI invalidation/AOD, physical `.digitalCrownRotation` mapping, LAN HTTP/`WCSession` streaming, and App Store review acceptance.
-- **Hardware probe (`Gate 0d`, unbuilt):** Run a minimal signed watchOS probe app on a physical watch and paste one output block recording: `mmap(MAP_JIT)` / `mprotect(PROT_EXEC)` result, BSD socket / `NWConnection` / `URLSessionWebSocketTask` blocked status, `URLSession.bytes` LAN latency & throughput (incl. offline router + `.local`), `WCSession` throughput, RGBA/zlib decode time, and Mach resident memory (alongside `Gate 0b` TestFlight validation of `SpriteView` vs. Metal linkage and `Gate 0c` on-device AOT `hello_world` RSS).
+- **Hardware probe (`Gate 0d`, built in [`gate0d_probe/`](../gate0d_probe/watch_app/README.md); Simulator negative-control CI verified, unverified on physical hardware):** Build and sign `gate0d_probe/watch_app` on a physical watch (see [docs/gate-0d-probe.md](gate-0d-probe.md)) against `gate0d_probe/mac_echo_server/probe_server.dart` across the two-run `IPHONE_LINK` matrix to paste one output block recording: `mmap(MAP_JIT)` / `mprotect(PROT_EXEC)` result, BSD socket / `NWConnection` / `URLSessionWebSocketTask` blocked status, `URLSession.bytes` LAN latency & throughput (incl. offline router + `.local`), RGBA/zlib decode time, and Mach resident memory (`WCSession` deferred to v1.1; alongside `Gate 0b` TestFlight validation of `SpriteView` vs. Metal linkage and `Gate 0c` on-device AOT `hello_world` RSS).
 
 ## Links & Provenance
 
-- **Architecture spec:** [flutter_watchos_architecture.md](../flutter_watchos_architecture.md) · **Proofs catalog & local commands:** [watchos-proofs/README.md](../watchos-proofs/README.md) · **UI package:** [packages/watchos_ui/README.md](../packages/watchos_ui/README.md)
+- **Architecture spec:** [flutter_watchos_architecture.md](../flutter_watchos_architecture.md) · **Proofs catalog & local commands:** [watchos-proofs/README.md](../watchos-proofs/README.md) · **UI package:** [packages/watchos_ui/README.md](../packages/watchos_ui/README.md) · **Hardware probe (`Gate 0d`):** [docs/gate-0d-probe.md](gate-0d-probe.md)
 - **Changelog:** [CHANGELOG.md](../CHANGELOG.md) (full history: [docs/history/CHANGELOG-full.md](history/CHANGELOG-full.md))
-- **CI results:** Latest pasted run `5aa5fa1` / `43662504610` (`TODO(author): verify` permanent results path once `docs/results/` is added in Stage 4).
+- **CI results:** Latest pasted run `5aa5fa1` / `43662504610` (`TODO(author): verify` permanent results archive once first sheet is pasted into [docs/results/latest.md](results/latest.md)).
 - **Who verified what:** See [AIREADME.md section 2](../AIREADME.md#2-how-ai-was-used-provenance). `TODO(author): state which parts I personally reviewed vs AI-generated`

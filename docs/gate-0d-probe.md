@@ -1,6 +1,6 @@
 # Gate 0d Hardware Probe App — Design Specification
 
-> **Status:** Design only (unbuilt, unverified on physical hardware). **Do not write app code until Stage 6c.**
+> **Status:** Built (`gate0d_probe/`, Stages 6b–6c); `Gate0dProbeCoreTests` and `validate_gate0d.py` pass Simulator negative-control CI (`watchOS 26.5`). **Unverified on physical hardware.**
 > **Purpose:** Collect physical-watch measurements for Open Questions 10, 11, and 13 in [flutter_watchos_architecture.md](../flutter_watchos_architecture.md) without bundling the Flutter engine or shipping to the App Store.
 
 ## 1. Goals, Constraints & Foreground Protocol
@@ -26,34 +26,45 @@ To separate iPhone-relayed networking from standalone Watch Wi-Fi, contributors 
 
 ---
 
-## 2. Proposed Project Structure & Build Decisions
+## 2. Project Structure & Build Decisions
 
 Watch-only v1 probe target + single-file Dart echo server + CI block validator:
 
 ```text
 gate0d_probe/
-  watch_app/                      # Minimal standalone watchOS SwiftUI app (.watchOS(.v10))
-    Configurations/               # Xcode build configurations
-      Debug-RelaxedATS.xcconfig   # Selects Info-RelaxedATS.plist
-      Debug-StrictATS.xcconfig    # Selects Info-StrictATS.plist
-    Info-RelaxedATS.plist         # Variant A: relaxed ATS (NSAllowsArbitraryLoads / NSAllowsLocalNetworking)
-    Info-StrictATS.plist          # Variant B: strict/default ATS for dedicated ATS probe
-    ProbeApp.swift                # Single-screen SwiftUI UI + per-probe re-run buttons + scenePhase guard
-    ProbeContext.swift            # Device/screen/power/thermal/launch metadata (no PII or IPs)
-    Probes/
-      JitProbe.swift              # Hypothesis test: mmap(MAP_JIT) & mprotect(PROT_EXEC)
-      PathMonitorProbe.swift      # Documented-behavior check: NWPathMonitor status
-      NetworkBlockProbe.swift     # Control HTTP + BSD socket + NWConnection + URLSessionWebSocketTask
-      LanTransportProbe.swift     # URLSession.bytes RTT, chunked stream, POST, .local resolution
-      AtsProbe.swift              # Dedicated ATS profile comparison
-      FrameDecodeProbe.swift      # CPU zlib decompress + CGImage/CGContext draw (sized from SCREEN_PT/SCALE)
-      MemoryProbe.swift           # Mach task_info (resident_size, phys_footprint) + os_proc_available_memory()
-      MemoryRampProbe.swift       # Opt-in crash-ramp probe + atomic file persistent state
-    ResultFormatter.swift         # Emits single-key-per-line block + RESULT_JSON= (enforces detail allowlist)
+  watch_app/                                    # Standalone watchOS SwiftUI app (.watchOS(.v10))
+    project.yml                                 # XcodeGen spec (Gate0dProbe-RelaxedATS & Gate0dProbe-StrictATS)
+    README.md                                   # Contributor build/run instructions
+    Info-RelaxedATS.plist                       # Variant A: relaxed ATS (NSAllowsArbitraryLoads / NSAllowsLocalNetworking)
+    Info-StrictATS.plist                        # Variant B: strict/default ATS for ATS comparison
+    Sources/
+      ProbeApp.swift                            # Single-screen SwiftUI UI + per-probe re-run buttons + scenePhase guard
+    Packages/
+      Gate0dProbeCore/
+        Package.swift                           # SwiftPM library + XCTest target (.watchOS(.v10))
+        Sources/
+          CProbeShims/                          # C shims: sysctl, P_TRACED, task_info, mmap/mprotect, BSD TCP, getaddrinfo
+          Gate0dProbeCore/
+            ProbeContext.swift                  # Device/screen/power/thermal/launch metadata (no PII or IPs)
+            ProbeModels.swift                   # Status enums, ProbeRunConfig, strict domain:code error sanitizer
+            ProbeRunner.swift                   # Async probe orchestrator + scenePhase cancellation + peak memory tracking
+            ResultFormatter.swift               # Emits single-key-per-line block + RESULT_JSON=
+            Probes/
+              JitProbe.swift                    # Hypothesis test: mmap(MAP_JIT) & mprotect(PROT_EXEC)
+              PathMonitorProbe.swift            # Documented-behavior check: NWPathMonitor status
+              NetworkBlockProbe.swift           # Control HTTP + BSD socket + NWConnection + URLSessionWebSocketTask
+              LanTransportProbe.swift           # URLSession.bytes RTT, chunked stream, POST, .local resolution
+              FrameDecodeProbe.swift            # CPU zlib decompress + CGImage/CGContext draw (sized from SCREEN_PT/SCALE)
+              MemoryProbe.swift                 # Mach task_info (resident_size, phys_footprint) + os_proc_available_memory()
+              MemoryRampProbe.swift             # Opt-in crash-ramp probe + atomic file persistent state
+        Tests/
+          Gate0dProbeCoreTests/
+            Gate0dProbeSimulatorTests.swift     # Simulator negative-control test + sanitizer/breadcrumb unit tests
   mac_echo_server/
-    probe_server.dart             # Single-file Dart echo/stream server using dart:io only
+    probe_server.dart                           # Single-file Dart echo/stream server using dart:io only
+    test_client.dart                            # Dart integration test for all server endpoints
   ci_validator/
-    validate_gate0d.py            # Validates output schema, enum values, RESULT_JSON, and PII/IP exclusion
+    validate_gate0d.py                          # Validates output schema, enum values, RESULT_JSON, and PII/IP exclusion
 ```
 
 ### Locked Decisions & Configuration Protocol
@@ -61,13 +72,13 @@ gate0d_probe/
 - **Deployment target (locked):** `.watchOS(.v10)` (matches `watchos-proofs/swift_spec/Package.swift` and maximizes contributor hardware coverage).
 - **`ios_companion_stub/` / `WCSession` (deferred to v1.1):** Excluded from v1 so contributors need zero iOS companion setup; v1 logs `wcsession_status=SKIPPED` (`wcsession_detail=deferred_to_v1_1`).
 - **Mac echo server (locked):** Single-file Dart script using **`dart:io` only** (zero package dependencies, reuses Flutter/Dart SDK).
-- **Two `Info.plist` variants (ATS separation):** Plists are selected via Xcode build configurations (`Debug-RelaxedATS` vs `Debug-StrictATS`), not `#if DEBUG`. Apple's [`NSAllowsLocalNetworking`](https://developer.apple.com/documentation/bundleresources/information-property-list/nsapptransportsecurity/nsallowslocalnetworking) documentation does not list watchOS. Variant A keeps ATS from masking low-level transport behavior; Variant B isolates ATS `-1022` policy behavior (`TODO(author): verify` exact behavior on physical watchOS).
+- **Two `Info.plist` variants (ATS separation):** Plists are selected via XcodeGen targets/schemes (`Gate0dProbe-RelaxedATS` vs `Gate0dProbe-StrictATS` in `project.yml`), not `#if DEBUG`. Apple's [`NSAllowsLocalNetworking`](https://developer.apple.com/documentation/bundleresources/information-property-list/nsapptransportsecurity/nsallowslocalnetworking) documentation does not list watchOS. Variant A keeps ATS from masking low-level transport behavior; Variant B isolates ATS `-1022` policy behavior (`TODO(author): verify` exact behavior on physical watchOS).
 - **Standalone launch procedure & runtime detection:**
   - Procedure: to run standalone, stop the Xcode debugging session, disconnect/quit Xcode, and tap the probe app icon from the watch home screen.
   - `LAUNCH_MODE` is read at runtime by inspecting `P_TRACED` via `sysctl` (`kern.proc.pid`, `TODO(author): verify` sysctl structure on watchOS), emitting `xcode_debugger` or `standalone_watch`.
-  - `ATS_PROFILE` is read at runtime from `Bundle.main.infoDictionary?["NSAppTransportSecurity"]`, emitting `relaxed` or `strict`. Both are displayed as read-only badges in the UI.
+  - `ATS_PROFILE` is read at runtime from `Bundle.main.infoDictionary?["NSAppTransportSecurity"]` (requiring `WKApplication == true`), emitting `relaxed`, `strict`, or `unknown` (when run outside a watchOS app bundle such as SwiftPM tests). Both are displayed as read-only badges in the UI.
 - **Local network privacy:** Per Apple [TN3179](https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy), watchOS does not enforce a Local Network Privacy prompt.
-- **Host configuration:** Configure target IP / `<host>.local` via `.xcconfig` or an on-watch text field for testing only (never emitted into the result block; avoids `NWBrowser` / Bonjour which TN3135 blocks).
+- **Host configuration:** Configure target IP / `<host>.local` via the on-watch text fields for testing only (never emitted into the result block; avoids `NWBrowser` / Bonjour which TN3135 blocks).
 
 ---
 
@@ -92,14 +103,14 @@ Per Apple [TN3135](https://developer.apple.com/documentation/technotes/tn3135-lo
 2. **`NWConnection` (`nw_connection_tcp`):** Blocked `NWConnection` instances on watchOS do not fail immediately—they remain in `.waiting` with `ENETDOWN`. Attach `stateUpdateHandler` with a `5 s` timeout; if it ends while still in `.waiting` with `ENETDOWN`, record `status=BLOCKED_BY_OS` and `detail=WAITING(ENETDOWN)`.
 3. **`URLSessionWebSocketTask` (`urlsession_websocket`):** Counts as low-level per TN3135. Connect to `ws://.../ws`, send one small ping message, and await echo within `5 s` -> record `ALLOWED`, `BLOCKED_BY_OS`, `FAIL`, or `TIMEOUT` with `domain:code`.
 
-### Probe 4: `.local` Resolution & `URLSession.bytes` LAN Transport (`LanTransportProbe`, `AtsProbe`)
+### Probe 4: `.local` Resolution & `URLSession.bytes` LAN Transport (`LanTransportProbe`)
 - **`.local` resolution (`[MDNS_LOCAL]`):** Run POSIX `getaddrinfo("<host>.local", ...)` (recording resolved count, time in ms, or error code—never printing the IP or hostname) and `URLSession` `GET http://<host>.local:<http_port>/ping`, comparing against the direct IP control baseline.
 - **Latency & throughput (`[LAN_URLSESSION_BYTES]`):**
   1. `20` sequential `GET /ping` requests after warmup (`min` / `p50` / `p95` / `max` ms).
   2. `URLSession.bytes` streaming (`GET /stream?frames=30&bytes=<N>`): test `4 KB` (representative compressed frame), native `@1x` byte size (`SCREEN_PT` `W * H * 4`), and native `@SCREEN_SCALE` byte size (`(W * S) * (H * S) * 4`). Measure TTFB and effective KB/s.
   3. `20` sequential `POST /input` calls (`32` bytes each) measuring upstream tap latency.
   4. Run under both internet-connected LAN and isolated no-internet router (`LAN_ROUTER_INTERNET=no`).
-- **ATS check (`AtsProbe`):** Run Variant A (`Info-RelaxedATS.plist`) for the transport benchmarks above, and run Variant B (`Info-StrictATS.plist`) separately to observe `-1022` ATS behavior on plain HTTP vs local HTTPS (`TODO(author): verify` exact plist key behavior on physical watchOS).
+- **ATS check:** Run Variant A (`Gate0dProbe-RelaxedATS` / `Info-RelaxedATS.plist`) for the transport benchmarks above, and run Variant B (`Gate0dProbe-StrictATS` / `Info-StrictATS.plist`) separately to observe `-1022` ATS behavior on plain HTTP vs local HTTPS (`TODO(author): verify` exact plist key behavior on physical watchOS).
 
 ### Probe 5: `WCSession` (`WatchConnectivityProbe` — Deferred to v1.1)
 - Because `ios_companion_stub/` is deferred to **v1.1** so v1 stays watch-only, v1 records `wcsession_status=SKIPPED` and `wcsession_detail=deferred_to_v1_1`.
@@ -302,5 +313,6 @@ Contributors can submit results via either:
 3. **Result-block validator (`validate_gate0d.py`):** Assert exact start/end delimiters, one `KEY=VALUE` per line, valid 6-value status enums, strict detail regex, `RESULT_JSON=` consistency, and **zero leaked IPv4/IPv6 addresses, `.local` strings, or UUIDs**.
 
 ### Implementation Roadmap
-- **Stage 6b:** Implement `mac_echo_server/probe_server.dart` (`dart:io` only) and `ci_validator/validate_gate0d.py` (fully testable on Linux/macOS CI).
-- **Stage 6c:** Implement the watchOS SwiftUI probe app in `gate0d_probe/watch_app/` (using an XcodeGen `project.yml` for reproducible project generation rather than a manual `.pbxproj`).
+- [x] **Stage 6b:** Implemented `mac_echo_server/probe_server.dart` (`dart:io` only), `test_client.dart`, and `ci_validator/validate_gate0d.py` (`.github/workflows/gate0d.yml`).
+- [x] **Stage 6c:** Implemented the watchOS SwiftUI probe app in `gate0d_probe/watch_app/` (XcodeGen `project.yml` + `Gate0dProbeCore` Swift package) and Simulator negative-control CI (`.github/workflows/gate0d_watch.yml`).
+- [ ] **Contributor run (`Gate 0d`):** Build, sign, and run on physical Apple Watch hardware across the two-run `IPHONE_LINK` matrix and submit result blocks.
