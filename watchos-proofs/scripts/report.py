@@ -64,8 +64,7 @@ for path in sorted(glob.glob(os.path.join(root, "**", "proof_results.txt"), recu
 
 out = []
 out.append("=" * 8 + " WATCHOS PROOFS RESULT SHEET " + "=" * 8)
-repo, run = os.environ.get("GITHUB_REPOSITORY", "?"), os.environ.get("GITHUB_RUN_ID", "?")
-out.append(f"commit {os.environ.get('GITHUB_SHA', '?')[:7]} | run https://github.com/{repo}/actions/runs/{run}")
+run = os.environ.get("GITHUB_RUN_ID", "?")
 out.append("")
 out.append("ENVIRONMENT")
 out.append(f"  proof run: commit {os.environ.get('GITHUB_SHA', '?')[:7]}, run {run}  <- if this is the same as the previous sheet, nothing new ran")
