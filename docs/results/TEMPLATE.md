@@ -1,9 +1,9 @@
 # CI Result Sheet — `<YYYY-MM-DD>` (`<short-sha>`)
 
-- **Date:** `<YYYY-MM-DD>`
+- **Date (UTC):** `<YYYY-MM-DDTHH:MM:SSZ>`
 - **Commit:** `<full-or-short-sha>`
-- **Workflow run URL:** `<https://github.com/<owner>/<repo>/actions/runs/<run-id>>`
 - **Branch / PR:** `<branch-or-pr>`
+- **Run ID:** `<run-id>`
 - **Source:** GitHub Actions (`proofs.yml` `results-sheet` artifact)
 
 ## `watchos-proofs` (`RESULTS` job output)

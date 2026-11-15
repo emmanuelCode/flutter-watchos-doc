@@ -6,9 +6,9 @@ GitHub Actions run logs and workflow artifacts (`results-sheet`, `results-*`, `e
 
 1. Open the **`RESULTS — open this job and copy the block`** job in the completed `.github/workflows/proofs.yml` run (or download the **`results-sheet`** artifact from the run summary page).
 2. Copy [TEMPLATE.md](TEMPLATE.md) to a dated/commit-labeled file in this folder (for example, `YYYY-MM-DD-<short-sha>.md`) or update [latest.md](latest.md).
-3. Fill in the **Run URL**, **Commit**, and **Date**, and paste the unmodified `RESULTS` block (plus `watchos_ui` Linux CI output if triggered). Never edit, round, or synthesize numbers inside a pasted sheet.
+3. Copy the **Date (UTC)**, **Commit**, **Branch / PR**, **Run ID**, and **Source** printed at the top of the sheet into the header fields (no repository URL/username needed), and paste the unmodified `RESULTS` block (plus `watchos_ui` Linux CI output if triggered). Never edit, round, or synthesize numbers inside a pasted sheet.
 
 ## Files
 
 - [latest.md](latest.md) — placeholder for the latest pasted `RESULTS` sheet.
-- [TEMPLATE.md](TEMPLATE.md) — template with required provenance fields (`Run URL`, `Commit`, `Date`).
+- [TEMPLATE.md](TEMPLATE.md) — template with required provenance fields (`Date (UTC)`, `Commit`, `Branch / PR`, `Run ID`, `Source`).

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Merges the per-job result files into ONE paste-ready block (printed + job summary)."""
+from datetime import datetime, timezone
 import glob, os, sys
 
 TITLES = {
@@ -62,12 +63,33 @@ for path in sorted(glob.glob(os.path.join(root, "**", "proof_results.txt"), recu
             pid, text = rest.split("|", 1)
             (info if kind == "INFO" else evid.setdefault(pid, [])).append((pid, text) if kind == "INFO" else text)
 
+sha = os.environ.get("GITHUB_SHA", "?")
+run = os.environ.get("GITHUB_RUN_ID", "?")
+timestamp_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+event = os.environ.get("GITHUB_EVENT_NAME") or "local"
+head_ref = os.environ.get("GITHUB_HEAD_REF", "")
+base_ref = os.environ.get("GITHUB_BASE_REF", "")
+ref_name = os.environ.get("GITHUB_REF_NAME", "")
+if head_ref:
+    pr_prefix = f"PR #{ref_name[:-6]} " if ref_name.endswith("/merge") else "PR "
+    branch_pr = f"{pr_prefix}({head_ref} -> {base_ref or '?'})"
+elif ref_name:
+    branch_pr = ref_name
+else:
+    branch_pr = "?"
+source = "GitHub Actions (proofs.yml results-sheet)" if os.environ.get("GITHUB_ACTIONS") == "true" else "local run"
+
 out = []
 out.append("=" * 8 + " WATCHOS PROOFS RESULT SHEET " + "=" * 8)
-run = os.environ.get("GITHUB_RUN_ID", "?")
+out.append(f"Date (UTC): {timestamp_utc}")
+out.append(f"Commit: {sha}")
+out.append(f"Branch / PR: {branch_pr}")
+out.append(f"Run ID: {run}")
+out.append(f"Event: {event}")
+out.append(f"Source: {source}")
 out.append("")
 out.append("ENVIRONMENT")
-out.append(f"  proof run: commit {os.environ.get('GITHUB_SHA', '?')[:7]}, run {run}  <- if this is the same as the previous sheet, nothing new ran")
+out.append(f"  proof run: commit {sha[:7]}, run {run}  <- if this is the same as the previous sheet, nothing new ran")
 out += [f"  {e}" for e in env] or ["  (none recorded)"]
 out.append("")
 out.append("RESULTS")
