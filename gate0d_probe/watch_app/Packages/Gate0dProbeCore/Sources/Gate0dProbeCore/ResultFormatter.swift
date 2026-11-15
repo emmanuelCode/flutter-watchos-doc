@@ -159,6 +159,6 @@ public enum ResultFormatter {
             lines.append("RESULT_JSON={}")
         }
         lines.append("======== END GATE 0D ========")
-        return lines.joined(separator: "\n")
+        return lines.joined(separator: "\n") + "\n"
     }
 }

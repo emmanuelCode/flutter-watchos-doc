@@ -11,6 +11,8 @@ Usage:
 import json
 import re
 import sys
+import tempfile
+from pathlib import Path
 
 ALLOWED_STATUSES = {"ALLOWED", "BLOCKED_BY_OS", "FAIL", "TIMEOUT", "INTERRUPTED", "SKIPPED"}
 ALLOWED_VOCAB_TOKENS = {
@@ -338,6 +340,15 @@ def run_tests() -> None:
                 print(f"FAIL: Bad fixture '{label}' failed with unexpected error: {err}")
                 sys.exit(1)
             print(f"PASS: Bad fixture '{label}' correctly rejected ({err})")
+
+    with tempfile.NamedTemporaryFile("w", suffix=".txt", encoding="utf-8", delete=False) as tf:
+        tf.write(GOLDEN_GOOD)
+        tmp_path = Path(tf.name)
+    try:
+        validate_block(tmp_path.read_text(encoding="utf-8"))
+        print("PASS: File Path read_text validated cleanly")
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
     print()
     print("ALL VALIDATOR TESTS PASSED")
