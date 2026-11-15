@@ -27,8 +27,8 @@ Fix order: **F0 → P1 → P0 → everything else.** A failure in P1 or P0 block
 instead of failing for confusing reasons. Full logs are attached to the run as `logs-*` artifacts, but only when
 something fails.
 
-**Latest result:** 34 of 34 checks passed (commit 6adb57d, run 43548272531; runner image macos26 20261102.0473.1, macOS 26.7.2,
-Xcode 26.6, watchOS 26.5 Simulator, Flutter 3.50.0, Dart 3.14.0 on all jobs).
+**Latest result:** All 34 CI entries passed (`17` Proof + `7` Setup + `4` Experiment + `2` Measure + `1` Finding + `3` hybrid [`P0` Setup+Proof, `P2` Proof+Measure, `Q1` Finding+Proof] = `34`; commit 6adb57d, run 43548272531; runner image macos26 20261102.0473.1, macOS 26.7.2,
+Xcode 26.6, watchOS 26.5 Simulator, Flutter 3.50.0, Dart 3.14.0 on all jobs). Passing a **Setup**, **Measure**, **Finding**, or **Experiment** check does not prove production readiness—see each row's limits below.
 
 ## Capability-to-check traceability
 
@@ -45,7 +45,13 @@ The main spec (`flutter_watchos_architecture.md`) summarizes validation by capab
 
 ## Test catalog
 
-**34 checks in four jobs**, all run on a macOS GitHub runner with the watchOS Simulator. IDs are not contiguous
+**34 catalog entries across four jobs** (`6` `flutter-side` + `17` `swift-watchos` + `2` `e2e` + `9` `engine` = `34`), all run on a macOS GitHub runner with the watchOS Simulator. Breakdown by table `Type` (`17 + 7 + 4 + 2 + 1 + 3 = 34`):
+- **Proof (`17`):** `P3, S1, S7` (`3`), `P4, P5, P6, S0, S2, S3` (`6`), `A1–A4, S5` (`5`, Appendix A), `S4` (`1`, experimental), `S6` (`1`, experimental + Appendix A), `E1` (`1`) — note `S2` is also grouped under Path B (`7` Path B checks total).
+- **Setup (`7`):** `F0, X1` (`2`), `P1, X2` (`2`), `E0` (`1`), `Q2, Q2s` (`2`).
+- **Experiment (`4`):** `Q4, Q5, Q6, Q7` (patched/retagged Mac debug engine in Simulator; never ships).
+- **Measure (`2`):** `P9, Q0` (numbers logged; pass means produced, not target met).
+- **Finding (`1`):** `Q3` (SDK gap data; informational).
+- **Hybrid (`3`):** `P0` (`Setup + Proof`), `P2` (`Proof + Measure`), `Q1` (`Finding + Proof`). IDs are not contiguous
 (there is no P7 or P8: they were planned and dropped).
 
 **Honest labeling.** "Tested" always means *tested in the watchOS Simulator on a macOS runner*, never on a physical
@@ -109,8 +115,8 @@ engine from source is beyond a hosted runner, so these checks ask what *can* be 
 | Q3 | Finding | Gap analysis: which `.tbd` symbols official engines import that watchOS lacks, plus `--sdk watchos` Clang/Swift header availability probes | Maps what a port must replace and proves public header limits | Clean totals with zero `libSystem` false positives (`6adb57d`): `FlutterEmbedder` misses `22/673` symbols on both `watchsimulator` and `watchos` (`0` delta; all `Metal`/`CoreVideo`/`MPS`/`IOKit`); `ios_Flutter` misses `44/1,077` on `watchos` (`46` on `watchsimulator`, which lacks `libswiftQuartzCore`). Clang/Swift `--sdk watchos` compile probes prove `Metal/Metal.h` is missing and `CAMetalLayer`, `UIView`, and `fork()` fail, while `SKMutableTexture`, `SKTexture(data:size:)`, `SpriteView`, `CoreGraphics`, `CoreText`, `WKCrownSequencer`, and `chdir` compile |
 | Q4 | Experiment | Retag the official desktop embedder library as a watchOS Simulator binary and see whether a watchOS process can load it | Finds exactly what stops the real engine code | It loads, after rewriting 8 framework paths, stubbing 7 absent libraries and overlaying 4 CoreVideo symbols; `FlutterEngineRun` and two other API symbols resolve. A retagged macOS binary is not a shippable port |
 | Q5 | Experiment | Run Flutter inside a watchOS process through `embedder.h` with the software renderer, using a host written from scratch; check the rendered pixels | Shows how far the real engine gets | Dart executed (a stripe is green only if `fib(20) == 6765`), text shaped and drew (746 bright glyph pixels in the latest run) and a frame came through the present callback. The pixel byte order of the callback is RGBA in this engine build, inferred from the pass. *Limits:* a patched debug (JIT) engine in a Mac-hosted Simulator process; it proves nothing about a source build, AOT, a real watch, memory, speed or App Store review |
-| Q6 | Experiment | Interactive loop inside a watchOS process: tap injected via `FlutterEngineSendPointerEvent`, Dart `setState` executed, frame 2 rendered and verified; memory footprint logged | Shows the engine runs an interactive event loop on watchOS | Dart received touch input, executed `setState`, reshaped text to TAP, repainted yellow/cyan stripes and presented frame 2. Resident and virtual memory measured via Mach task info (about 140.1–143.0 MB resident under Flutter 3.50.0 debug mode). *Limits:* JIT debug engine in the Simulator |
-| Q7 | Experiment | Crown scroll input (`signal_kind=scroll` -> `setState` -> frame 3) and the low-memory hook | Demonstrates rotary event handling and the low-memory embedder hook | The scroll signal reached Dart (`Listener` -> `PointerScrollEvent` -> `setState`), text repainted to CROWN, frame 3 rendered; `FlutterEngineNotifyLowMemoryWarning` succeeded without crashing. *Limits:* synthetic engine signal, no hardware Crown or SwiftUI `.digitalCrownRotation` |
+| Q6 | Experiment | Interactive loop inside a watchOS process: tap injected via `FlutterEngineSendPointerEvent`, Dart `setState` executed, frame 2 rendered and verified; memory footprint logged | Shows the engine runs an interactive event loop on watchOS | Dart received touch input, executed `setState`, reshaped text to TAP, repainted yellow/cyan stripes and presented frame 2. Resident and virtual memory measured via Mach task info (about 140.1–143.0 MB resident under Flutter 3.50.0 debug mode). *Limits:* Mac debug JIT process, not a watchOS measurement (uses Mac CPU/RAM in the Simulator; says nothing about AOT or watch jetsam limits) |
+| Q7 | Experiment | Crown scroll input (`signal_kind=scroll` -> `setState` -> frame 3) and the low-memory hook | Demonstrates rotary event handling and the low-memory embedder hook | The scroll signal reached Dart (`Listener` -> `PointerScrollEvent` -> `setState`), text repainted to CROWN, frame 3 rendered; `FlutterEngineNotifyLowMemoryWarning` succeeded without crashing; Mach resident memory also logged across frames 1–3 and post-low-memory (same Mac debug JIT process, not a watchOS measurement). *Limits:* synthetic engine signal, no hardware Crown or SwiftUI `.digitalCrownRotation`; Mac debug JIT process, not a watchOS measurement |
 
 The frames the engine rendered are uploaded as the `engine-frames` artifact (frames 1, 2 and 3).
 
