@@ -4,7 +4,7 @@
 
 ## What this is / is NOT
 
-- **Is:** A proposed `embedder.h` architecture (`Path A`: Flutter engine software/compositor rasterization presented via SwiftUI `Canvas`), an SDK-gap and engine-source audit (`Q1`, `Q3`), a Simulator dev-loop proof (`34/34` checks passed in CI), and a zero-Material/Cupertino widget PoC (`packages/watchos_ui`, `9/9` Linux unit tests passed).
+- **Is:** A proposed `embedder.h` architecture (`Path A`: Flutter engine software/compositor rasterization presented via SwiftUI `Canvas`), an SDK-gap and engine-source audit (`Q1`, `Q3`), a Simulator dev-loop proof (`34/34` checks passed in CI), and a zero-Material/Cupertino widget PoC (`packages/watchos_ui`, `14/14` Linux unit tests passed).
 - **Is NOT:** A working or shippable watchOS engine build, an AOT runtime, or hardware-verified. Checks `Q4`–`Q7` run a **retagged macOS debug JIT engine** with stubbed frameworks in a Simulator process—a wiring experiment that **never ships**.
 - **Public-API stance:** This design uses only public watchOS SDK APIs; the alternative route (`flutter-watchos`) is unassessed here.
 
